@@ -34,3 +34,6 @@ logs/agent.log
 
 # Local Claude Code settings
 .claude/
+
+# npm dev dependencies for the extension test suite (jsdom).
+node_modules/

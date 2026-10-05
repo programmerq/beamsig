@@ -209,7 +209,7 @@ available without cloning:
 ```
 GET /repos/{owner}/{repo}/commits/{sha}
 { "commit": { "verification": {
-    "verified": false, "reason": "unknown_key",
+    "verified": false, "reason": "unknown_signature_type",
     "signature": "-----BEGIN SSH SIGNATURE-----\n…",
     "payload":   "tree …\nparent …\nauthor …\ncommitter …\n\nmessage\n" }}}
 ```
