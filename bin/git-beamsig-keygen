@@ -86,15 +86,21 @@ CA_FILE = os.environ.get("BEAMSIG_CA", "")
 
 
 def trust_sources():
+    """Operator pins first, then the discovery cache."""
     if CA_FILE:
         return [CA_FILE]
-    if os.path.isdir(TRUST_STORE) and os.listdir(TRUST_STORE):
-        return [TRUST_STORE]
-    for fallback in (os.path.join(_CFG, "pinned-user-ca.txt"),
-                     os.path.join(_HOME, "ca", "pinned-user-ca.txt")):
-        if os.path.exists(fallback):
-            return [fallback]
-    return []
+    out = []
+    if os.path.isdir(TRUST_STORE):
+        out.append(TRUST_STORE)
+    cache = os.path.join(_CFG, "discovered")
+    if os.path.isdir(cache):
+        out.append(cache)
+    if not out:
+        for fallback in (os.path.join(_CFG, "pinned-user-ca.txt"),
+                         os.path.join(_HOME, "ca", "pinned-user-ca.txt")):
+            if os.path.exists(fallback):
+                out.append(fallback)
+    return out
 
 BEAM_RE = re.compile(r"^beam-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -387,24 +393,28 @@ def _explain_unknown_tenant(sig, payload, argv):
     except Exception:
         return
     e = unknown
-    print(c("33", "UNTRUSTED TENANT: the signature is intact, but its "
-                  "Teleport CA is not pinned here."))
-    print(f"  claims cluster  {e.cluster_claimed or '(unstated)'}  "
-          + c("33", "(unverified: this comes from the certificate itself)"))
-    if e.beam_id:
-        print(f"  claims beam     {e.beam_id}  " + c("33", "(unverified)"))
-    print(f"  issuing CA      {e.ca_fp}")
-    patterns = disc_mod.allow_patterns()
-    if patterns and e.cluster_claimed:
-        try:
-            new = disc_mod.discover(e.cluster_claimed, TRUST_STORE, patterns)
-            print(c("33", f"  discovered and pinned {e.cluster_claimed} "
-                          f"({', '.join(a.fingerprint for a in new)}); "
-                          "re-run to verify it"))
-            return
-        except Exception as why:
-            print(c("33", f"  discovery not attempted: {why}"))
-    print(f"  to trust it     beamsig trust {e.cluster_claimed or '<cluster>'}")
+    # Fetch the CA for the cluster named by the certificate. Verified HTTPS, so
+    # the hostname is authenticated; the cluster becomes part of the identity we
+    # report rather than a trust decision taken silently here.
+    try:
+        new = disc_mod.discover(
+            e.cluster_claimed,
+            patterns=disc_mod.allow_patterns(),
+            offline=disc_mod.is_offline())
+    except Exception as why:
+        print(c("33", "UNTRUSTED TENANT: the signature is intact, but we have "
+                      "no CA for the cluster it names."))
+        print(f"  claims cluster  {e.cluster_claimed or '(unstated)'}  "
+              + c("33", "(from the certificate; not checked)"))
+        if e.beam_id:
+            print(f"  claims beam     {e.beam_id}  " + c("33", "(not checked)"))
+        print(f"  issuing CA      {e.ca_fp}")
+        print(f"  {why}")
+        return
+    print(c("33", f"Fetched the user CA for {e.cluster_claimed} over HTTPS "
+                  f"({', '.join(a.fingerprint for a in new)}) and cached it."))
+    print(c("33", "Re-run to verify; git caches signature results per "
+                  "invocation."))
 
 
 def _report_unknown_tenant(sig, payload, argv):

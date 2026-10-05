@@ -111,34 +111,51 @@ UNTRUSTED TENANT: the signature is intact, but its Teleport CA is not pinned her
 an invalid signature, so CI and UIs can tell "we don't know them" from "this is
 broken".
 
-### Lazy loading, and why it is off by default
+### CA discovery is automatic
 
-A CA *can* be fetched on demand, because the certificate names the cluster it
-came from. But that name comes from the artifact being verified, so fetching a
-trust anchor it names is circular: anyone can mint their own CA and a
-certificate claiming `teleport-route-to-cluster=evil.example.com`, and
-discovery would dutifully fetch evil.example.com's CA and validate it. The
-result shows the signer controls a Teleport cluster at that hostname — it is
-**not** the same statement as a pin an operator chose.
+When a certificate names a cluster you have no CA for, beamsig fetches it:
 
-So discovery is opt-in and fenced:
-
-```bash
-beamsig verify-commit <sha> --discover-allow '*.beams.sh'
-export BEAMSIG_DISCOVER_ALLOW='*.beams.sh,*.corp.example'
+```
+GET https://<cluster>/webapi/auth/export?type=user
 ```
 
-* off unless an allowlist is given — no allowlist, no fetch;
-* the cluster name must match a glob *and* be a syntactically valid hostname;
-* trust-on-first-use: the CA is written to the store and pinned from then on;
-* an existing pin is **never** silently overwritten — a changed CA is reported,
-  not accepted;
-* the first use is reported as unauthenticated, with the fingerprint to confirm
-  out of band.
+That request is **verified HTTPS**, so WebPKI authenticates the hostname. The
+fetched CA is cached under `~/.config/beamsig/discovered/` — kept separate from
+operator pins in `trusted/`, so the distinction survives and is always
+reported:
 
-For a team whose tenants are all its own, `--discover-allow '*.yourdomain'` is
-reasonable. Otherwise pin deliberately with `beamsig trust <cluster>`. See
-`beamsig/discover.py`.
+```
+teleport cluster     : jeff.beams.sh   (CA discovered over HTTPS)
+teleport cluster     : jeff.beams.sh   (operator-pinned CA)
+```
+
+An operator pin always wins; discovery never replaces one.
+
+**A signature establishes provenance, not trust or safety.** A verified result
+says "beam `<uuid>` of cluster `<host>`, at some point in this certificate's
+window". The cluster is part of that identity, not a judgement about it.
+Anyone can stand up a Teleport cluster, mint a CA, and produce a signature that
+verifies as *their* cluster — and that statement is true and useful; it simply
+is not a statement about yours. The hazard is a reader seeing `VERIFIED` and
+ignoring which cluster it names.
+
+So policy is explicit and separate from verification:
+
+| knob | effect |
+|---|---|
+| `--cluster <name>` | require this exact cluster; fail otherwise |
+| `--discover-allow '<glob>'` | restrict discovery to matching clusters (repeatable) |
+| `--offline` / `BEAMSIG_OFFLINE=1` | never fetch; local pins and cache only |
+| `beamsig trust <cluster>` | pin deliberately, ahead of time |
+
+Note that `--ca` is a **seed, not a whitelist**: with discovery on, pinning the
+wrong CA does not block verification, because the right one gets fetched. Use
+`--offline` if you want the trust store to be the only authority.
+
+Two residual caveats. Discovery needs the network, so offline verification
+still requires a pin. And a verifier makes an HTTPS request to a hostname that
+came from the artifact it is checking — in a CI runner that is a minor
+outbound-request consideration, bounded by `--discover-allow` and `--offline`.
 
 ## Biggest caveat
 

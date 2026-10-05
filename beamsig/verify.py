@@ -76,9 +76,10 @@ class Attestation:
     roles: list = field(default_factory=list)
     principals: list = field(default_factory=list)
     login_ip: str = ""
-    cluster: str = ""            # authoritative: the cluster the pin is bound to
+    cluster: str = ""            # authoritative: the cluster of the matching anchor
     cluster_claimed: str = ""    # what the certificate itself says
-    cluster_pinned: bool = False # True when the trust anchor was cluster-labelled
+    cluster_pinned: bool = False # the anchor carried a cluster label
+    cluster_trust: str = ""      # "pinned" | "discovered" | "unlabelled"
     # crypto
     signing_key_fp: str = ""
     ca_fp: str = ""
@@ -109,6 +110,7 @@ class TrustAnchor:
     blob: bytes
     cluster: str = ""      # "" means the pin carries no cluster label
     source: str = ""
+    discovered: bool = False   # fetched over HTTPS rather than operator-placed
 
     @property
     def fingerprint(self) -> str:
@@ -121,7 +123,8 @@ def _cluster_from_name(name: str) -> str:
     return stem if "." in stem and " " not in stem else ""
 
 
-def _parse_anchors(text: str, source: str, label: str = "") -> list:
+def _parse_anchors(text: str, source: str, label: str = "",
+                   discovered: bool = False) -> list:
     """Pull CA keys out of a Teleport export, allowed_signers or known_hosts.
 
     Teleport's /webapi/auth/export?type=user response ends with
@@ -146,7 +149,8 @@ def _parse_anchors(text: str, source: str, label: str = "") -> list:
                     Reader(blob).string()
                 except Exception:
                     break
-                out.append(TrustAnchor(blob=blob, cluster=cluster, source=source))
+                out.append(TrustAnchor(blob=blob, cluster=cluster, source=source,
+                                       discovered=discovered))
                 break
     return out
 
@@ -315,6 +319,14 @@ def verify_sshsig(sig_bytes: bytes, payload: bytes, trust,
     att.cluster_claimed = ext(ROUTE_EXT)
     att.cluster = matched.cluster or att.cluster_claimed
     att.cluster_pinned = bool(matched.cluster)
+    att.cluster_trust = ("discovered" if matched.discovered
+                         else "pinned" if matched.cluster else "unlabelled")
+    if matched.discovered:
+        att.warnings.append(
+            f"the CA for {att.cluster!r} was discovered over HTTPS, not pinned "
+            "by an operator. WebPKI authenticates that hostname, so the "
+            "cluster name is sound -- but deciding whether you accept that "
+            "cluster is your policy call; use --cluster to enforce one")
     if not matched.cluster:
         att.warnings.append(
             "the trust anchor carries no cluster label, so the cluster name "
@@ -330,8 +342,9 @@ def verify_sshsig(sig_bytes: bytes, payload: bytes, trust,
             f"{matched.cluster!r} as authoritative")
     if expect_cluster and att.cluster != expect_cluster:
         raise VerifyError(
-            f"cluster mismatch: signature verifies under the CA pinned for "
-            f"{att.cluster!r}, expected {expect_cluster!r}")
+            f"cluster mismatch: signature verifies under the "
+            f"{att.cluster_trust} CA for {att.cluster!r}, expected "
+            f"{expect_cluster!r}")
     roles_raw = ext(ROLES_EXT)
     if roles_raw:
         import json
@@ -398,8 +411,11 @@ def render(att: Attestation) -> str:
     L.append(f"  bot name             : {att.bot_name}")
     L.append(f"  bot instance id      : {att.bot_instance_id}   (stable per beam boot)")
     L.append(f"  delegation session   : {att.delegation_session_id}")
+    suffix = {"pinned": "   (operator-pinned CA)",
+              "discovered": "   (CA discovered over HTTPS)",
+              "unlabelled": "   (from the certificate; CA carries no cluster label)"}
     L.append(f"  teleport cluster     : {att.cluster}"
-             + ("" if att.cluster_pinned else "   (from the certificate, unpinned)"))
+             + suffix.get(att.cluster_trust, ""))
     if att.cluster_claimed and att.cluster_claimed != att.cluster:
         L.append(f"  cluster claimed      : {att.cluster_claimed}   (NOT authoritative)")
     L.append(f"  owner (cert Key ID)  : {att.owner}   (impersonated human, NOT the signer)")

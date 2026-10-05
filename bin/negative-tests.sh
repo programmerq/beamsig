@@ -98,8 +98,24 @@ echo "###################################################################"
 check reject "TAMPERED PAYLOAD" \
   "$B" verify tampered.txt -s good.sig -n "$NS" --ca "$CA" --claimed-time "$NOW"
 
-check reject "WRONG CA (host CA pinned instead of user CA)" \
+# Discovery is on by default, so pinning the wrong CA does NOT block
+# verification: the correct user CA is fetched for the cluster the certificate
+# names. --ca is a seed, not a whitelist. The knobs that actually restrict are
+# --offline, --cluster and --discover-allow, so test those instead.
+check ok     "WRONG CA pinned, discovery on -> still verifies (--ca is not a whitelist)" \
   "$B" verify good.txt -s good.sig -n "$NS" --ca "$LAB/ca/export-host.txt" --claimed-time "$NOW"
+
+check reject "WRONG CA pinned, --offline -> trust anchors gate" \
+  "$B" verify good.txt -s good.sig -n "$NS" --ca "$LAB/ca/export-host.txt" \
+       --offline --claimed-time "$NOW"
+
+check reject "discovery on, but --cluster names a different tenant" \
+  "$B" verify good.txt -s good.sig -n "$NS" --ca "$LAB/ca/export-host.txt" \
+       --cluster other.example.sh --claimed-time "$NOW"
+
+check reject "discovery on, but --discover-allow excludes this cluster" \
+  "$B" verify good.txt -s good.sig -n "$NS" --ca "$LAB/ca/export-host.txt" \
+       --discover-allow '*.nope.example' --claimed-time "$NOW"
 
 check reject "ROGUE CA + FORGED bot-name, checked against the REAL Teleport CA" \
   "$B" verify good.txt -s forged.sig -n "$NS" --ca "$CA" --claimed-time "$NOW"

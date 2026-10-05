@@ -9,10 +9,16 @@ was actually executed. The code, evidence logs and fixtures now live in this
 repository — see §8. Everything is re-runnable from a clone via `bin/setup.sh`.
 
 Experiments 8–10 and papercuts 20–27 were added after the first draft, and
-§4(a), §4(d)–(d3) and §5 were revised. Two of those revisions correct the draft
-rather than extend it: the trust model was effectively single-tenant, and
-`%GS` turns out to carry no evidential value at all. Both are called out where
-they appear.
+§4(a), §4(d)–(d3) and §5 were revised. Three of those revisions correct the
+draft rather than extend it, and each is called out where it appears:
+
+* the trust model was effectively single-tenant (§4(d), Exp 8);
+* `%GS` turns out to carry no evidential value at all, not merely to be
+  misleading (§4(a));
+* CA discovery was described as "circular trust" and disabled by default. That
+  reasoning was wrong — the fetch is verified HTTPS, so the hostname *is*
+  authenticated, and the cluster is part of the identity rather than a trust
+  decision. Discovery is now automatic (§4(d2), Exp 9).
 
 ---
 
@@ -23,7 +29,7 @@ they appear.
 3. **`ssh-keygen -Y verify` alone cannot prove "a beam signed this"** — it only matches cert principals, which are the generic `root`/`beams`. Beam attribution requires a custom verifier that reads the cert extensions; mine passes 12 negative tests.
 4. **Biggest caveat: the beam key never rotates, only the cert does.** The signer picks which cert to embed, so it chooses the validity window a verifier sees. I backdated a signature 34 minutes with full verification success. The time bound is "somewhere in this beam's lifetime", not ±61 minutes.
 5. **The alias is never bound** to any credential, and the only `BEAM_ID → BEAM_ALIAS` mappings are live cluster queries that disappear with the beam.
-6. **Trust must be keyed by cluster, not a flat CA list**: the certificate's cluster is only a claim by whoever signed it, so trusting two tenants otherwise lets either impersonate the other. Demonstrated, then fixed.
+6. **Trust is keyed by cluster, and CA discovery is automatic**: an unknown cluster's CA is fetched over verified HTTPS, so cross-tenant repositories just work. A signature therefore proves **provenance, not trust** — "beam `<uuid>` of cluster `<host>`" — and the cluster must be read as part of the claim, with policy in `--cluster`/`--offline`.
 
 ---
 
@@ -564,32 +570,70 @@ for an invalid signature. That distinction matters: "we have never heard of
 that tenant" is not "this signature is bad", and CI or a UI must be able to
 tell them apart.
 
-**Lazy CA loading** is possible, because the certificate names its cluster — but
-that name comes from the artifact being verified, so fetching a trust anchor it
-names is circular. Anyone can mint a CA plus a certificate claiming
-`teleport-route-to-cluster=evil.example.com`; discovery would fetch
-evil.example.com's CA and validate against it. The result shows the signer
-controls a Teleport cluster at that hostname. It is **not** a pin an operator
-chose. So discovery (`beamsig/discover.py`) is:
+**CA discovery is automatic.** When the certificate names a cluster we have no
+CA for, beamsig fetches
+`https://<cluster>/webapi/auth/export?type=user`, caches it under
+`~/.config/beamsig/discovered/`, and carries on.
 
-* off unless `--discover-allow <glob>` / `BEAMSIG_DISCOVER_ALLOW` is given;
-* gated on the name matching a glob **and** being a valid hostname
-  (`evil.example.com`, `../../etc/passwd`, `a b` and over-long names all refused);
-* trust-on-first-use, pinned thereafter;
-* never a silent overwrite — a changed CA is reported, not accepted;
-* reported as unauthenticated on first use, with the fingerprint to confirm out
-  of band.
+An earlier draft of this report had discovery disabled by default and described
+it as "circular trust" with an "unauthenticated" first use. **That reasoning was
+wrong on the central point.** The fetch is verified HTTPS, so WebPKI
+authenticates the hostname: discovery is not unauthenticated at all. And the
+cluster name is not a trust decision, it is *part of the identity* being
+reported. An attacker can certainly mint their own CA and a certificate
+claiming `teleport-route-to-cluster=attacker.example`, and discovery will fetch
+their CA and validate it — but the resulting statement is **true**: that
+signature really is from a beam of a Teleport cluster at attacker.example. It
+is not, and cannot be turned into, a statement about your cluster. Operator
+pins are loaded first and are never replaced, so an attacker also cannot talk a
+verifier out of an anchor it already has.
+
+The framing that matters: **signing establishes provenance, not trust or
+safety.** The real hazard is not forgery, it is a reader seeing `VERIFIED` and
+ignoring *which* cluster it names. That is a presentation problem, so the
+cluster is always reported alongside whether its CA was pinned or discovered:
 
 ```
-$ beamsig verify-commit HEAD --ca /tmp/emptystore --discover-allow '*.beams.sh'
-NOTE: discovered and pinned jeff.beams.sh (SHA256:c/8F7ipW3zBqBRe0Eau/ZBDU8hpFtLzZI9bH32668UU)
-      First use was unauthenticated: the cluster name came from the certificate
-      being verified. Confirm that fingerprint out of band.
-  result               : VERIFIED
+  teleport cluster     : jeff.beams.sh   (CA discovered over HTTPS)
+  teleport cluster     : jeff.beams.sh   (operator-pinned CA)
 ```
 
-**Conclusion:** usable for a team whose tenants are all its own
-(`--discover-allow '*.yourdomain'`). Not something to enable by default.
+Policy is explicit and separate from verification: `--cluster <name>` to
+require a tenant, `--discover-allow <glob>` to restrict discovery,
+`--offline`/`BEAMSIG_OFFLINE` to forbid fetching, `beamsig trust <cluster>` to
+pin ahead of time.
+
+A consequence worth stating, because it caught one of my own tests: **`--ca` is
+a seed, not a whitelist.** With discovery on, pinning the wrong CA no longer
+prevents verification — the right one is fetched for the cluster the
+certificate names. The negative test asserting "wrong CA → reject" began
+passing verification, correctly. It now tests the knobs that actually restrict:
+
+| Test | Result |
+|---|---|
+| wrong CA pinned, discovery on | **verifies** (`--ca` is not a whitelist) |
+| wrong CA pinned, `--offline` | rejected — trust anchors gate |
+| discovery on, `--cluster other.example.sh` | rejected |
+| discovery on, `--discover-allow '*.nope.example'` | rejected |
+
+Hostnames are validated before any request (`../../etc/passwd`, `a b`,
+`localhost`, `no-dot`, `a..b`, `http://x.com`, `x.com:8080` and over-long names
+all refused), redirects are not followed, and TLS verification is mandatory.
+
+Two residual caveats stand. Discovery needs the network, so offline
+verification still requires a pin. And a verifier makes an HTTPS request to a
+hostname supplied by the artifact it is checking — a minor outbound-request
+consideration in CI, bounded by `--discover-allow` and `--offline`. Note that a
+literal IP such as `127.0.0.1` passes hostname validation; it will fail TLS in
+practice, but the request is still attempted. I left that permissive rather
+than block private ranges, because legitimate internal clusters need internal
+names.
+
+**Conclusion:** discovery on by default is the right trade. It makes the common
+case — a repository spanning several of a team's own tenants — work without
+pre-registration, and it does not weaken what a signature proves, because the
+cluster was never a trust decision in the first place. What it does demand is
+that consumers render the cluster and apply policy themselves.
 
 ---
 
@@ -618,6 +662,11 @@ its own key, so the key fingerprint is a per-beam identifier.
 ---
 
 ## 4. Security analysis
+
+The one-line framing, which the rest of this section elaborates: **a signature
+establishes provenance, not trust and not safety.** It says which beam of which
+cluster produced some bytes. It says nothing about whether those bytes are
+good, reviewed, or from anyone you ought to listen to.
 
 ### What a verified `beamsig` signature **does** prove
 
@@ -691,7 +740,11 @@ This is **not fixable in the verifier**. It needs an external timestamp (RFC 316
 
 **(d) Cross-tenant impersonation, if trust is not keyed by cluster.** Covered in Experiment 8. The short version: `teleport-route-to-cluster` is a claim scoped to whoever signed the certificate, so a flat list of trusted CAs lets any trusted tenant impersonate any other. The authoritative cluster must come from the pin. This was a real flaw in the first draft's design, not a hypothetical. Related: `allowed_signers` cannot express cluster at all, so stock `ssh-keygen` with several tenants listed cannot distinguish them — any trusted tenant's beam will verify as any other's.
 
-**(d2) Lazy CA discovery is circular trust.** Fetching a CA for the cluster named *inside the certificate you are verifying* proves only that the signer controls a Teleport cluster at that hostname. It is not equivalent to an operator-chosen pin, and it is also a request to an attacker-named host. Hence off by default, allowlisted, TOFU-pinned, and reported as unauthenticated. See Experiment 9.
+**(d2) Automatic CA discovery, and a correction.** An earlier draft called this "circular trust" and disabled it by default. That was wrong on the central point: the fetch is verified HTTPS, so WebPKI authenticates the hostname, and the cluster name is part of the *identity* reported rather than a trust decision taken on the verifier's behalf. Discovery is now on by default.
+
+What a discovered anchor proves is exactly what it says: the signer controls a Teleport cluster at that hostname. Anyone can stand one up, so **a `VERIFIED` result is provenance, not trust or safety** — the cluster must be read as part of the claim. Operator pins are loaded first and never replaced, so discovery cannot displace an existing anchor. Policy lives in `--cluster`, `--discover-allow` and `--offline`, deliberately separate from verification.
+
+Consequence: `--ca` is a seed, not a whitelist. Pinning the wrong CA no longer blocks verification, which is how this was caught — a negative test asserting "wrong CA → reject" started passing. Use `--offline` when the trust store must be the only authority. Residual: discovery needs the network, and the verifier makes a request to a hostname named by the artifact (bounded by `--discover-allow`/`--offline`; a literal IP passes name validation but fails TLS).
 
 **(d3) The signing shim hijacked every signature.** Worth recording because it bit me rather than being theorised: installed globally, `git-beamsig-keygen` ignored `user.signingkey` entirely and signed *everything* as the beam. A developer with their own SSH or GPG signing key would have had it silently replaced. It was found when a test fixture meant to be signed by a second tenant came out signed by this beam, with output confidently naming the wrong beam. Fixed: the shim now only claims a signature when the configured key really is the beam's, and otherwise hands back to the real `ssh-keygen`. The general lesson — a tool that takes over a global code path must be conservative about *when* it takes over.
 

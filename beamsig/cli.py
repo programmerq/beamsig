@@ -17,9 +17,10 @@ from .wire import Reader
 # Trust is per tenant and must not be hardwired to one. The default store is a
 # directory of cluster-labelled pins; the local cluster's export URL is only a
 # convenience fallback for interactive use on a beam.
-DEFAULT_TRUST_STORE = os.environ.get(
-    "BEAMSIG_TRUST_STORE",
-    os.path.join(os.path.expanduser("~"), ".config", "beamsig", "trusted"))
+_CONFIG_DIR = os.environ.get("BEAMSIG_CONFIG_DIR",
+                             os.path.expanduser("~/.config/beamsig"))
+DEFAULT_TRUST_STORE = os.environ.get("BEAMSIG_TRUST_STORE",
+                                     os.path.join(_CONFIG_DIR, "trusted"))
 LOCAL_CA_URL = (("https://" + os.environ["TELEPORT_CLUSTER"]
                  + "/webapi/auth/export?type=user")
                 if os.environ.get("TELEPORT_CLUSTER") else None)
@@ -70,14 +71,21 @@ def _trust(a):
     the local cluster's export."""
     sources = list(a.ca or [])
     if not sources:
+        # Operator pins first, then anything previously discovered. Both may be
+        # absent on a fresh machine, which is fine: discovery fills them in.
+        anchors = []
         if os.path.isdir(DEFAULT_TRUST_STORE):
-            sources = [DEFAULT_TRUST_STORE]
-        elif LOCAL_CA_URL:
-            sources = [LOCAL_CA_URL]
-        else:
-            raise SystemExit(
-                "no trust anchors: pass --ca <file|dir|url>, populate "
-                f"{DEFAULT_TRUST_STORE}, or set TELEPORT_CLUSTER")
+            anchors += vmod.load_trust_anchors([DEFAULT_TRUST_STORE],
+                                               allow_empty=True)
+        cache = disc_mod.cache_dir()
+        if os.path.isdir(cache):
+            # Mark these, so a previously discovered CA keeps reporting itself
+            # as discovered rather than quietly becoming indistinguishable
+            # from something an operator chose.
+            for anchor in vmod.load_trust_anchors([cache], allow_empty=True):
+                anchor.discovered = True
+                anchors.append(anchor)
+        return anchors
     # Tolerate an empty store: when discovery is enabled, starting with no
     # anchors is legitimate and verification will raise UnknownTenant, which
     # is what triggers the fetch.
@@ -93,30 +101,26 @@ def _verify_with_discovery(a, fn):
     apart.
     """
     anchors = _trust(a)
-    store = a.trust_store or DEFAULT_TRUST_STORE
     patterns = disc_mod.allow_patterns(getattr(a, "discover_allow", None))
+    offline = disc_mod.is_offline(getattr(a, "offline", False))
     try:
         return fn(anchors)
     except vmod.UnknownTenant as e:
-        if not patterns:
-            print(f"BEAMSIG UNTRUSTED TENANT: {e}", file=sys.stderr)
-            return 3
+        # Fetch the CA for the cluster the certificate names. The request is
+        # verified HTTPS, so WebPKI authenticates that hostname; the cluster
+        # then forms part of the reported identity rather than being a trust
+        # decision made here. Pins are loaded first and are never replaced.
         try:
-            new = disc_mod.discover(e.cluster_claimed, store, patterns)
+            new = disc_mod.discover(e.cluster_claimed, patterns=patterns,
+                                    offline=offline)
         except disc_mod.DiscoveryRefused as refused:
             print(f"BEAMSIG UNTRUSTED TENANT: {e}", file=sys.stderr)
-            print(f"  discovery not attempted: {refused}", file=sys.stderr)
+            print(f"  {refused}", file=sys.stderr)
             return 3
-        except Exception as fetch_err:
-            print(f"BEAMSIG UNTRUSTED TENANT: {e}", file=sys.stderr)
-            print(f"  discovery failed: {fetch_err}", file=sys.stderr)
-            return 3
-        print(f"NOTE: discovered and pinned {e.cluster_claimed} "
-              f"({', '.join(x.fingerprint for x in new)}) at "
-              f"{disc_mod.pin_path(store, e.cluster_claimed)}", file=sys.stderr)
-        print("      First use was unauthenticated: the cluster name came from "
-              "the certificate being verified. Confirm that fingerprint out of "
-              "band.", file=sys.stderr)
+        print(f"NOTE: fetched the user CA for {e.cluster_claimed} over HTTPS "
+              f"({', '.join(x.fingerprint for x in new)}) and cached it. "
+              "The cluster name is authenticated by TLS; whether you accept "
+              "that cluster is policy -- see --cluster.", file=sys.stderr)
         try:
             return fn(anchors + new)
         except vmod.VerifyError as e2:
@@ -293,17 +297,18 @@ def cmd_trust(a):
     import urllib.request
     store = a.store or DEFAULT_TRUST_STORE
     if a.list or not a.cluster:
-        if not os.path.isdir(store):
-            print(f"{store} does not exist; nothing trusted")
-            return 0
-        print(f"trust store: {store}")
-        anchors = vmod.load_trust_anchors([store], allow_empty=True)
-        if not anchors:
-            print("  (empty: no clusters pinned)")
-            return 0
-        for anchor in anchors:
-            print(f"  {anchor.cluster or '(unlabelled)':40s} "
-                  f"{anchor.fingerprint}  {os.path.basename(anchor.source)}")
+        for label, d in (("pinned", store), ("discovered", disc_mod.cache_dir())):
+            print(f"{label}: {d}")
+            if not os.path.isdir(d):
+                print("  (none)")
+                continue
+            anchors = vmod.load_trust_anchors([d], allow_empty=True)
+            if not anchors:
+                print("  (none)")
+                continue
+            for anchor in anchors:
+                print(f"  {anchor.cluster or '(unlabelled)':36s} "
+                      f"{anchor.fingerprint}")
         return 0
     os.makedirs(store, mode=0o700, exist_ok=True)
     url = f"https://{a.cluster}/webapi/auth/export?type=user"
@@ -332,12 +337,13 @@ def main(argv=None):
                             "cluster=path. Repeatable; defaults to "
                             f"{DEFAULT_TRUST_STORE}")
         q.add_argument("--cluster", help="require this exact Teleport cluster")
-        q.add_argument("--trust-store", help="where discovered pins are written")
+        q.add_argument("--trust-store", help="directory of operator pins")
         q.add_argument("--discover-allow", action="append", metavar="GLOB",
-                       help="permit fetching the CA for an unpinned cluster "
-                            "whose name matches GLOB, e.g. '*.beams.sh'. The "
-                            "name comes from the certificate being verified, "
-                            "so read beamsig/discover.py first. Repeatable.")
+                       help="restrict CA discovery to clusters matching GLOB, "
+                            "e.g. '*.beams.sh'. Repeatable. Unrestricted by "
+                            "default; the cluster is reported either way.")
+        q.add_argument("--offline", action="store_true",
+                       help="never fetch a CA; only use local pins and cache")
         q.add_argument("--beam-id", help="require this exact beam id")
         q.add_argument("--allow-non-beam", action="store_true",
                        help="accept any Teleport user cert, not just beams")

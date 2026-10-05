@@ -100,8 +100,18 @@ one. See `bin/make-allowed-signers.sh`.
 
 **Do not assume one tenant.** Keep a *map* of cluster → CA, not a single
 anchor, and key it by cluster so the UI can serve more than one Beams tenant.
-`beamsig` stores pins as `~/.config/beamsig/trusted/<cluster>.ca`; `beamsig
-trust <cluster>` adds one.
+`beamsig` stores pins as `~/.config/beamsig/trusted/<cluster>.ca` and
+discovered CAs under `discovered/`; `beamsig trust <cluster>` pins one.
+
+**A signature is provenance, not trust or safety.** This is the single most
+important thing for a UI to get right. A verified result means "beam `<uuid>`
+of cluster `<host>` signed these bytes" — nothing about whether the content is
+good, reviewed, or from anyone you should listen to. beamsig fetches an unknown
+cluster's CA automatically over verified HTTPS, so *any* Teleport cluster's beam
+can produce a `VERIFIED` result for its own cluster. **Never render a bare
+green tick.** Render the cluster with equal prominence, and apply your own
+policy on top (`cluster` field, or `--cluster`). `cluster_trust` tells you
+whether the CA was `pinned`, `discovered` or `unlabelled`.
 
 **Take the cluster from the pin, never from the certificate.** This is a real
 spoofing vector, not a theoretical one. `teleport-route-to-cluster` is just a
@@ -112,7 +122,8 @@ either can mint a certificate claiming to be the other. The JSON reflects this:
 |---|---|
 | `cluster` | **authoritative** — the cluster the verifying pin is bound to |
 | `cluster_claimed` | what the certificate says; display only, may differ |
-| `cluster_pinned` | `false` means the pin was unlabelled and `cluster` fell back to the claim |
+| `cluster_pinned` | `false` means the anchor was unlabelled and `cluster` fell back to the claim |
+| `cluster_trust` | `pinned` (operator-placed), `discovered` (fetched over HTTPS), or `unlabelled` |
 
 Render `cluster`. If `cluster_pinned` is `false`, or `cluster_claimed` differs
 from `cluster`, say so — both land in `warnings[]` too. And treat a beam's

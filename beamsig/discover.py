@@ -1,103 +1,169 @@
-"""Opt-in, lazy pinning of a Teleport user CA for an unseen tenant.
+"""Automatic, transparent discovery of a Teleport user CA.
 
-Teams do not all share one Beams tenant, so a repository can hold commits from
-several. The signature carries the certificate, and the certificate names the
-cluster it claims to come from, so in principle a verifier can fetch that
-cluster's CA on demand and carry on.
+Teams do not share one Beams tenant, so a repository routinely holds commits
+from several. Requiring every tenant to be pinned in advance makes the common
+case fail, and makes the failure look like a bad signature.
 
-Read this before enabling it.
+So discovery is on by default. When a certificate names a cluster we have no CA
+for, we fetch it:
 
-**The cluster name comes from the artifact being verified.** Fetching a trust
-anchor named by the thing you are trying to trust is circular. An attacker who
-mints their own CA and a certificate claiming
-`teleport-route-to-cluster=evil.example.com` will, under discovery, cause us to
-fetch evil.example.com's CA, which will of course validate their certificate.
-The result is not meaningless -- it shows the signer controls a Teleport
-cluster at that hostname -- but it is emphatically not "trusted", and it is not
-the same statement as a pin an operator chose.
+    GET https://<cluster>/webapi/auth/export?type=user
 
-So discovery is:
+Why that is sound, and why an earlier version of this file was wrong about it:
 
-  * off unless asked for;
-  * restricted to an explicit hostname allowlist, so "any tenant under
-    *.beams.sh" can be expressed without accepting arbitrary hosts;
-  * trust-on-first-use -- the fetched CA is written to the store and pinned
-    from then on, so a later change of CA is visible rather than silent;
-  * and always reported as discovered rather than operator-pinned.
+  * **The fetch is authenticated.** It is HTTPS with full certificate
+    verification, so WebPKI proves we are talking to whoever controls that DNS
+    name. "Discovered" is not "unauthenticated" -- the earlier wording here
+    claiming otherwise was simply incorrect.
+  * **The cluster name is part of the identity, not a trust decision.** A
+    verified signature says "beam <uuid> of cluster <host>". An attacker can
+    certainly mint their own CA and a certificate claiming
+    `teleport-route-to-cluster=attacker.example`, and discovery will fetch
+    their CA and validate it -- but the resulting statement is *true*: that
+    signature really is from a beam of a Teleport cluster at
+    attacker.example. It is not, and cannot be made into, a statement about
+    your cluster.
+  * **Pins still win.** A cluster you have pinned is never replaced by
+    discovery, so an attacker cannot talk us out of an existing anchor by
+    claiming to be one.
 
-It is a convenience for a team whose tenants are all its own. It is not a
-substitute for pinning.
+The actual hazard is therefore not forgery, it is a reader seeing "VERIFIED"
+and ignoring *which* cluster. That is a presentation problem, addressed by
+always reporting the cluster and whether it was pinned or discovered, and by
+`--cluster` for callers that want to enforce a policy.
+
+Two genuine residual caveats:
+
+  * Discovery needs the network. Offline verification still requires a pin,
+    which is why `beamsig trust <cluster>` and `--offline` exist.
+  * A verifier makes an HTTPS request to a hostname that came from the artifact
+    it is checking. In a CI runner that is a (minor) outbound-request
+    consideration; `--discover-allow` can restrict it to domains you own, and
+    `--offline` switches it off entirely.
 """
 import fnmatch
 import os
 import re
+import ssl
+import urllib.error
 import urllib.request
 
 from .verify import TrustAnchor, load_trust_anchors
 
-CLUSTER_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,252}[a-zA-Z0-9])?$")
+# A conservative DNS name. Rejects paths, spaces, schemes, ports and the like,
+# so a cluster label can never be coerced into something else.
+CLUSTER_RE = re.compile(
+    r"^(?=.{1,253}$)[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+    r"(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$")
+
+USER_AGENT = "beamsig/0.1"
 
 
 class DiscoveryRefused(Exception):
     """Discovery was not attempted, and why."""
 
 
+def valid_cluster(cluster: str) -> bool:
+    return bool(cluster) and bool(CLUSTER_RE.match(cluster)) and ".." not in cluster
+
+
 def allowed(cluster: str, patterns) -> bool:
-    if not cluster or not CLUSTER_RE.match(cluster) or ".." in cluster:
+    """`patterns` is an optional restriction. Empty/None means no restriction."""
+    if not valid_cluster(cluster):
         return False
-    return any(fnmatch.fnmatch(cluster, p) for p in (patterns or []))
-
-
-def pin_path(store: str, cluster: str) -> str:
-    return os.path.join(store, f"{cluster}.ca")
-
-
-def discover(cluster: str, store: str, patterns, timeout=20) -> list:
-    """Fetch and pin `cluster`'s user CA. Returns the new TrustAnchors.
-
-    Raises DiscoveryRefused when the cluster is not covered by the allowlist,
-    which is the common and expected case.
-    """
     if not patterns:
+        return True
+    return any(fnmatch.fnmatch(cluster, p) for p in patterns)
+
+
+def default_store(config_dir=None) -> str:
+    cfg = config_dir or os.environ.get(
+        "BEAMSIG_CONFIG_DIR", os.path.expanduser("~/.config/beamsig"))
+    return os.path.join(cfg, "trusted")
+
+
+def cache_dir(config_dir=None) -> str:
+    """Discovered CAs are cached separately from operator-placed pins.
+
+    Keeping them apart means the distinction survives: a pin stays a pin, and
+    anything that arrived by discovery can always be reported as such.
+    """
+    cfg = config_dir or os.environ.get(
+        "BEAMSIG_CONFIG_DIR", os.path.expanduser("~/.config/beamsig"))
+    return os.path.join(cfg, "discovered")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects: the response must come from the host we asked."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise DiscoveryRefused(
-            "discovery is disabled; pass --discover-allow '<pattern>' (or set "
-            "BEAMSIG_DISCOVER_ALLOW) to permit fetching CAs for clusters "
-            "named by the certificate itself, and read beamsig/discover.py "
-            "first")
+            f"the CA export for {req.host} redirected to {newurl!r}; refusing "
+            "to follow it")
+
+
+def fetch_ca(cluster: str, timeout: float = 10.0) -> bytes:
+    """Fetch a cluster's SSH user CA export over verified HTTPS."""
+    if not valid_cluster(cluster):
+        raise DiscoveryRefused(f"{cluster!r} is not a valid cluster hostname")
+    url = f"https://{cluster}/webapi/auth/export?type=user"
+    ctx = ssl.create_default_context()      # verifies hostname and chain
+    ctx.check_hostname = True
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    opener = urllib.request.build_opener(
+        _NoRedirect, urllib.request.HTTPSHandler(context=ctx))
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with opener.open(req, timeout=timeout) as r:
+            return r.read(1 << 20)
+    except urllib.error.URLError as e:
+        raise DiscoveryRefused(f"could not fetch the user CA for {cluster}: "
+                               f"{getattr(e, 'reason', e)}")
+
+
+def discover(cluster: str, store=None, patterns=None, timeout: float = 10.0,
+             offline: bool = False, cache=None) -> list:
+    """Fetch, cache and return the trust anchors for `cluster`.
+
+    Raises DiscoveryRefused with a usable explanation on any refusal.
+    """
+    if offline:
+        raise DiscoveryRefused(
+            f"offline: cluster {cluster!r} is not pinned locally. Pin it with "
+            f"`beamsig trust {cluster}` on a machine with network access")
+    if not valid_cluster(cluster):
+        raise DiscoveryRefused(
+            f"the certificate names {cluster!r} as its cluster, which is not a "
+            "valid hostname, so there is nothing to fetch")
     if not allowed(cluster, patterns):
         raise DiscoveryRefused(
-            f"cluster {cluster!r} is not covered by the discovery allowlist "
+            f"cluster {cluster!r} is outside the discovery allowlist "
             f"{list(patterns)}; pin it explicitly with `beamsig trust "
-            f"{cluster}` if you mean to trust it")
+            f"{cluster}` if you mean to accept it")
 
-    dest = pin_path(store, cluster)
-    if os.path.exists(dest):
-        # Already pinned. If we are here the pin did not match, which means the
-        # cluster's CA changed (rotation) or something is wrong. Do not
-        # silently overwrite a pin.
-        raise DiscoveryRefused(
-            f"a pin for {cluster!r} already exists at {dest} but did not "
-            "verify this certificate. The cluster's user CA may have been "
-            "rotated; confirm the new fingerprint out of band and replace the "
-            "file deliberately")
+    data = fetch_ca(cluster, timeout=timeout)
 
-    url = f"https://{cluster}/webapi/auth/export?type=user"
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        data = r.read()
-    os.makedirs(store, mode=0o700, exist_ok=True)
+    cache = cache or cache_dir()
+    os.makedirs(cache, mode=0o700, exist_ok=True)
+    dest = os.path.join(cache, f"{cluster}.ca")
     tmp = dest + ".tmp"
     with open(tmp, "wb") as f:
         f.write(data)
     os.replace(tmp, dest)
-    anchors = load_trust_anchors([dest])
+
+    anchors = load_trust_anchors([f"{cluster}={dest}"])
     for a in anchors:
         a.discovered = True
     return anchors
 
 
 def allow_patterns(explicit=None):
-    """Allowlist from flags and/or $BEAMSIG_DISCOVER_ALLOW (comma separated)."""
+    """Optional restriction, from flags and/or $BEAMSIG_DISCOVER_ALLOW."""
     pats = list(explicit or [])
     env = os.environ.get("BEAMSIG_DISCOVER_ALLOW", "")
     pats += [p.strip() for p in env.split(",") if p.strip()]
     return pats
+
+
+def is_offline(explicit=False) -> bool:
+    return bool(explicit) or bool(os.environ.get("BEAMSIG_OFFLINE"))
