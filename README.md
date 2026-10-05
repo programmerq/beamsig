@@ -148,6 +148,14 @@ So policy is explicit and separate from verification:
 | `--offline` / `BEAMSIG_OFFLINE=1` | never fetch; local pins and cache only |
 | `beamsig trust <cluster>` | pin deliberately, ahead of time |
 
+Discovery is bounded to `*.beams.sh` by default — every Beams tenant — matching
+`DEFAULT_ALLOW` in the browser extension. That bound does real work, because
+discovery also **rewrites `allowed_signers`**: `beamsig verify` reads the trust
+store directly, but `git log` shells out to stock `ssh-keygen` against
+`gpg.ssh.allowedSignersFile`, which knows nothing about the store. Without the
+rewrite a cross-tenant commit verifies under `beamsig verify-commit` while
+`git log` reports `%G?`=`U` forever. Widen with `--discover-allow '*'`.
+
 Note that `--ca` is a **seed, not a whitelist**: with discovery on, pinning the
 wrong CA does not block verification, because the right one gets fetched. Use
 `--offline` if you want the trust store to be the only authority.
@@ -156,6 +164,41 @@ Two residual caveats. Discovery needs the network, so offline verification
 still requires a pin. And a verifier makes an HTTPS request to a hostname that
 came from the artifact it is checking — in a CI runner that is a minor
 outbound-request consideration, bounded by `--discover-allow` and `--offline`.
+
+## Robot avatars in the terminal
+
+Each beam has a deterministic robot, generated from its UUID by
+`extension/tools/avatar/teleport_avatar.py` (from the browser-extension work).
+`beamsig` renders the *same* robot in the terminal rather than inventing its
+own, so the CLI and the extension cannot drift:
+
+```bash
+beamsig avatar <beam-id|commit>     # or it appears beside `git log` output
+```
+
+Two backends. **`blocks`** is Unicode half-blocks with 24-bit colour — just
+text and SGR, so it survives a pipe, `less -R` and CI logs. **`image`** is a
+real inline image (iTerm2 OSC 1337, or the kitty protocol), used only when
+nothing is in the way.
+
+Inline images do **not** work through a pager, which is worth stating plainly
+because it is tempting to assume otherwise. Measured by piping each form
+through `less` on a pty:
+
+| payload | `LESS=FRX` (git's default) | `LESS=FX` |
+|---|---|---|
+| SGR half-blocks | **survives** | stripped |
+| iTerm2 OSC 1337 | mangled | mangled |
+| kitty APC | mangled | mangled |
+
+`less` eats the OSC introducer and prints the base64 payload as text across
+your screen. So `git log` always gets `blocks`, detected via
+`GIT_PAGER_IN_USE` and `isatty()`. Override with
+`BEAMSIG_AVATAR=off|blocks|iterm|kitty|auto`.
+
+The avatar needs the generator plus `cairosvg` (for SVG rasterisation); without
+either it is silently skipped. **It is a recognition aid, never evidence** — a
+pure function of the beam UUID, so anyone can draw any beam's robot.
 
 ## Biggest caveat
 

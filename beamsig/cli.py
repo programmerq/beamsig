@@ -8,8 +8,9 @@ import os
 import subprocess
 import sys
 
-from . import attest as attest_mod, discover as disc_mod, gitobj, \
-    identity as ident_mod, sshsig, verify as vmod
+from . import allowedsigners as as_mod, attest as attest_mod, \
+    discover as disc_mod, gitobj, identity as ident_mod, sshsig, \
+    termavatar as av_mod, verify as vmod
 from .hwagent import HardwareKeyAgent, HASH_SHA256
 from .sshagentshim import der_to_ssh_ecdsa_sig
 from .wire import Reader
@@ -136,7 +137,9 @@ def _emit(att, as_json):
         d = dataclasses.asdict(att)
         print(json.dumps(d, indent=2, sort_keys=True))
     else:
-        print(vmod.render(att))
+        text = vmod.render(att).split("\n")
+        robot = av_mod.render(att.beam_id, cols=12)
+        print("\n".join(av_mod.side_by_side(robot, text)))
 
 
 def cmd_verify(a):
@@ -293,6 +296,38 @@ def cmd_inspect(a):
     return 0
 
 
+def cmd_avatar(a):
+    """The robot is a recognition aid, not evidence: it is a pure function of
+    the beam UUID, so anyone can draw any beam's robot. Never treat a matching
+    avatar as verification."""
+    seed = a.seed
+    if not disc_mod.CLUSTER_RE and False:
+        pass
+    if "-" not in seed or len(seed) != 36:
+        try:
+            obj = gitobj.raw_object(seed, a.repo, "commit")
+            _, sig = gitobj.split_signature(obj)
+            if sig:
+                from . import sshcert
+                cert = sshcert.parse(sshsig.parse(sig).publickey)
+                name = cert.extensions.get(vmod.BOT_NAME_EXT, b"").decode()
+                m = vmod.BEAM_BOT_RE.match(name)
+                if m:
+                    seed = m.group(1)
+        except Exception:
+            pass
+    lines = av_mod.render(seed, backend=a.backend, cols=a.cols)
+    if not lines:
+        print(f"no avatar available for {seed}", file=sys.stderr)
+        print("needs extension/tools/avatar/teleport_avatar.py and cairosvg",
+              file=sys.stderr)
+        return 1
+    parts = av_mod.describe(seed) or {}
+    text = [f"beam {seed}", ""] + [f"{k:10} {v}" for k, v in parts.items()]
+    print("\n".join(av_mod.side_by_side(lines, text)))
+    return 0
+
+
 def cmd_trust(a):
     import urllib.request
     store = a.store or DEFAULT_TRUST_STORE
@@ -321,6 +356,12 @@ def cmd_trust(a):
     print(f"pinned {a.cluster}:")
     for anchor in anchors:
         print(f"  {anchor.fingerprint}  -> {dest}")
+    n = as_mod.sync()
+    if n >= 0:
+        print(f"  {as_mod.default_path()} regenerated ({n} CAs), so git log "
+              "can use it too")
+    else:
+        print(f"  left {as_mod.default_path()} alone (hand-maintained)")
     print("Check that fingerprint against the cluster operator out of band; "
           "fetching it over TLS only proves you reached the host.")
     return 0
@@ -390,6 +431,13 @@ def main(argv=None):
     s.add_argument("--claimed-time", type=int)
     add_verify_opts(s)
     s.set_defaults(fn=cmd_verify_attestation)
+
+    s = sub.add_parser("avatar", help="show a beam's robot avatar")
+    s.add_argument("seed", help="beam id, or a git revision to read one from")
+    s.add_argument("-C", "--repo", default=".")
+    s.add_argument("--backend", choices=av_mod.BACKENDS)
+    s.add_argument("--cols", type=int, default=16)
+    s.set_defaults(fn=cmd_avatar)
 
     s = sub.add_parser("trust", help="pin another tenant's CA, or list pins")
     s.add_argument("cluster", nargs="?",

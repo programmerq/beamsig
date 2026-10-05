@@ -85,21 +85,29 @@ TRUST_STORE = os.environ.get("BEAMSIG_TRUST_STORE",
 CA_FILE = os.environ.get("BEAMSIG_CA", "")
 
 
-def trust_sources():
-    """Operator pins first, then the discovery cache."""
+def trust_anchors():
+    """Operator pins first, then the discovery cache.
+
+    Anchors from the cache are flagged, so a discovered CA keeps reporting
+    itself as discovered in `git log` instead of looking operator-pinned.
+    """
+    from beamsig import verify as vmod
     if CA_FILE:
-        return [CA_FILE]
+        return vmod.load_trust_anchors([CA_FILE], allow_empty=True)
     out = []
     if os.path.isdir(TRUST_STORE):
-        out.append(TRUST_STORE)
+        out += vmod.load_trust_anchors([TRUST_STORE], allow_empty=True)
     cache = os.path.join(_CFG, "discovered")
     if os.path.isdir(cache):
-        out.append(cache)
+        for a in vmod.load_trust_anchors([cache], allow_empty=True):
+            a.discovered = True
+            out.append(a)
     if not out:
         for fallback in (os.path.join(_CFG, "pinned-user-ca.txt"),
                          os.path.join(_HOME, "ca", "pinned-user-ca.txt")):
             if os.path.exists(fallback):
-                out.append(fallback)
+                out += vmod.load_trust_anchors([fallback], allow_empty=True)
+                break
     return out
 
 BEAM_RE = re.compile(r"^beam-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -115,6 +123,18 @@ def run_real(argv, stdin_data=None):
     p = subprocess.run([REAL] + argv, input=stdin_data,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     return p.returncode, p.stdout
+
+
+def git_allowed_signers():
+    """The allowed_signers path git is configured to use, or None."""
+    try:
+        p = subprocess.run(["git", "config", "--get",
+                            "gpg.ssh.allowedSignersFile"],
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+    path = p.stdout.strip()
+    return os.path.expanduser(path) if path else None
 
 
 def opt_value(argv, flag):
@@ -219,7 +239,7 @@ def do_verify(argv):
     try:
         from beamsig import verify as vmod
         att = vmod.verify_sshsig(
-            sig, payload, vmod.load_trust_anchors(trust_sources()),
+            sig, payload, trust_anchors(),
             namespace="git",
             claimed_time=verify_time(argv),
             claimed_time_source="git commit date", require_beam=True)
@@ -236,22 +256,37 @@ def do_verify(argv):
     keytype = "ECDSA-CERT" if att.sig_algorithm.startswith("ecdsa") else "CERT"
     print(f'Good "git" signature for beam-{att.beam_id} '
           f'with {keytype} key {att.signing_key_fp}')
+    body = []
     alias = alias_for(att.beam_id)
     if alias:
-        print(f"  beam alias    {alias}  " + c("33", "(self-reported, not in the certificate)"))
-    print(f"  bot instance  {att.bot_instance_id}")
-    print(f"  delegation    {att.delegation_session_id}")
-    print(f"  roles         {', '.join(att.roles)}")
-    print(f"  owner         {att.owner}  "
-          + c("33", "(impersonated, NOT the signer)"))
-    print(f"  cert window   {iso(att.valid_after)} .. {iso(att.valid_before)}")
+        body.append(f"  beam alias    {alias}  "
+                    + c("33", "(self-reported, not in the certificate)"))
+    body.append(f"  bot instance  {att.bot_instance_id}")
+    body.append(f"  delegation    {att.delegation_session_id}")
+    body.append(f"  roles         {', '.join(att.roles)}")
+    body.append(f"  owner         {att.owner}  "
+                + c("33", "(impersonated, NOT the signer)"))
+    body.append(f"  cert window   {iso(att.valid_after)} .. {iso(att.valid_before)}")
     ct = att.claimed_time
-    print(f"  commit time   {iso(ct) if ct else '(unknown)'}"
-          + ("  in window" if ct else ""))
-    print(f"  signing key   {att.signing_key_fp}")
-    cluster = att.cluster + ("" if att.cluster_pinned else " (unpinned)")
-    print(f"  cluster       {cluster}")
-    print(f"  teleport CA   {att.ca_fp}")
+    body.append(f"  commit time   {iso(ct) if ct else '(unknown)'}"
+                + ("  in window" if ct else ""))
+    mark = {"pinned": "", "discovered": "  (CA discovered over HTTPS)",
+            "unlabelled": "  (from the certificate; CA unlabelled)"}
+    body.append(f"  cluster       {att.cluster}{mark.get(att.cluster_trust, '')}")
+    body.append(f"  teleport CA   {att.ca_fp}")
+
+    # The robot goes beside the identity block. detect() returns "blocks" here
+    # because git has a pager open, so this is colour codes only -- an inline
+    # image would be eaten by less and its base64 sprayed across the screen.
+    try:
+        from beamsig import termavatar
+        robot = termavatar.render(att.beam_id, cols=12)
+        body = termavatar.side_by_side(robot, body)
+    except Exception:
+        pass
+    for line in body:
+        print(line)
+
     for w in att.warnings:
         print("  " + c("33", "! " + w))
     if ct is None:
@@ -384,7 +419,7 @@ def _explain_unknown_tenant(sig, payload, argv):
         return
     unknown = None
     try:
-        vmod.verify_sshsig(sig, payload, vmod.load_trust_anchors(trust_sources()),
+        vmod.verify_sshsig(sig, payload, trust_anchors(),
                            namespace="git", claimed_time=verify_time(argv),
                            require_beam=True)
         return                            # trusted after all; nothing to add
@@ -411,10 +446,27 @@ def _explain_unknown_tenant(sig, payload, argv):
         print(f"  issuing CA      {e.ca_fp}")
         print(f"  {why}")
         return
+    # discover() regenerates the default allowed_signers. git may be pointed at
+    # a different one, so sync that too -- otherwise find-principals keeps
+    # failing and git reports U forever.
+    #
+    # The path cannot be taken from argv here: git does not pass -f to
+    # check-novalidate (only to find-principals and verify), so ask git.
+    note = ""
+    try:
+        from beamsig import allowedsigners
+        target = git_allowed_signers()
+        if target and os.path.realpath(target) != os.path.realpath(
+                allowedsigners.default_path()):
+            if allowedsigners.sync(target) < 0:
+                note = (f" {target} is hand-maintained and was left alone; add "
+                        "the CA there to make git log verify this.")
+    except Exception:
+        pass
     print(c("33", f"Fetched the user CA for {e.cluster_claimed} over HTTPS "
-                  f"({', '.join(a.fingerprint for a in new)}) and cached it."))
-    print(c("33", "Re-run to verify; git caches signature results per "
-                  "invocation."))
+                  f"({', '.join(a.fingerprint for a in new)}) and cached it, "
+                  "and updated allowed_signers."))
+    print(c("33", "Re-run git to verify it." + note))
 
 
 def _report_unknown_tenant(sig, payload, argv):
@@ -425,7 +477,7 @@ def _report_unknown_tenant(sig, payload, argv):
     except Exception:
         return False
     try:
-        vmod.verify_sshsig(sig, payload, vmod.load_trust_anchors(trust_sources()),
+        vmod.verify_sshsig(sig, payload, trust_anchors(),
                            namespace="git", claimed_time=verify_time(argv),
                            require_beam=True)
         return False                      # it verified after all

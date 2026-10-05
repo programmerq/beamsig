@@ -3,3 +3,7 @@ grpcio-tools==1.84.0
 protobuf
 cryptography==50.0.2
 asn1crypto==1.5.1
+
+# Optional: terminal robot avatars (beamsig avatar / git log).
+# Needs libcairo2 on the system. Skipped silently if absent.
+# cairosvg

@@ -4,8 +4,13 @@ Teams do not share one Beams tenant, so a repository routinely holds commits
 from several. Requiring every tenant to be pinned in advance makes the common
 case fail, and makes the failure look like a bad signature.
 
-So discovery is on by default. When a certificate names a cluster we have no CA
-for, we fetch it:
+So discovery is on by default, bounded to `*.beams.sh` -- every Beams tenant --
+and refused elsewhere unless the caller widens it with `--discover-allow`. That
+bound matters more than it looks: discovery also rewrites `allowed_signers`, so
+it decides which hosts can cause a local file to change. The browser extension
+uses the same default.
+
+When a certificate names an allowed cluster we have no CA for, we fetch it:
 
     GET https://<cluster>/webapi/auth/export?type=user
 
@@ -50,11 +55,19 @@ import urllib.request
 
 from .verify import TrustAnchor, load_trust_anchors
 
-# A conservative DNS name. Rejects paths, spaces, schemes, ports and the like,
-# so a cluster label can never be coerced into something else.
+# Every Beams tenant. Discovery is hands-free inside this, and refused outside
+# it unless the caller widens it. Mirrors DEFAULT_ALLOW in the browser
+# extension's discover.js so the two implementations agree.
+DEFAULT_ALLOW = ("*.beams.sh",)
+
+# A bare, lowercase DNS hostname: no scheme, port, path, userinfo, and no IP
+# literal (the final label must start with a letter). Matches the extension's
+# HOSTNAME_RE. Stricter than an earlier version here, which accepted
+# `127.0.0.1` -- that failed TLS in practice, but there is no reason to make
+# the request at all.
 CLUSTER_RE = re.compile(
-    r"^(?=.{1,253}$)[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
-    r"(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$")
+    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z][a-z0-9-]{0,61}[a-z0-9]$")
 
 USER_AGENT = "beamsig/0.1"
 
@@ -64,16 +77,23 @@ class DiscoveryRefused(Exception):
 
 
 def valid_cluster(cluster: str) -> bool:
-    return bool(cluster) and bool(CLUSTER_RE.match(cluster)) and ".." not in cluster
+    if not cluster or ".." in cluster:
+        return False
+    return bool(CLUSTER_RE.match(cluster.strip().lower()))
 
 
 def allowed(cluster: str, patterns) -> bool:
-    """`patterns` is an optional restriction. Empty/None means no restriction."""
+    """A cluster is allowed only if it matches at least one pattern.
+
+    There is deliberately no "empty means everything" case: `allow_patterns()`
+    supplies DEFAULT_ALLOW when nothing is configured, and `--discover-allow
+    '*'` is how you ask for everything. `--offline` is how you turn discovery
+    off.
+    """
     if not valid_cluster(cluster):
         return False
-    if not patterns:
-        return True
-    return any(fnmatch.fnmatch(cluster, p) for p in patterns)
+    c = cluster.strip().lower()
+    return any(fnmatch.fnmatch(c, p.strip().lower()) for p in (patterns or ()))
 
 
 def default_store(config_dir=None) -> str:
@@ -141,6 +161,7 @@ def discover(cluster: str, store=None, patterns=None, timeout: float = 10.0,
             f"{list(patterns)}; pin it explicitly with `beamsig trust "
             f"{cluster}` if you mean to accept it")
 
+    cluster = cluster.strip().lower()
     data = fetch_ca(cluster, timeout=timeout)
 
     cache = cache or cache_dir()
@@ -154,15 +175,29 @@ def discover(cluster: str, store=None, patterns=None, timeout: float = 10.0,
     anchors = load_trust_anchors([f"{cluster}={dest}"])
     for a in anchors:
         a.discovered = True
+
+    # `beamsig verify` reads the store directly, but `git log` goes through
+    # stock ssh-keygen against gpg.ssh.allowedSignersFile. Without this, a
+    # commit from a newly discovered tenant verifies under `beamsig
+    # verify-commit` while git keeps reporting %G?=U forever.
+    try:
+        from . import allowedsigners
+        allowedsigners.sync()
+    except Exception:
+        pass        # never fail a verification because a convenience file did
+
     return anchors
 
 
 def allow_patterns(explicit=None):
-    """Optional restriction, from flags and/or $BEAMSIG_DISCOVER_ALLOW."""
+    """Patterns from flags and/or $BEAMSIG_DISCOVER_ALLOW, else DEFAULT_ALLOW.
+
+    Use `*` to permit any cluster; `--offline` to permit none.
+    """
     pats = list(explicit or [])
     env = os.environ.get("BEAMSIG_DISCOVER_ALLOW", "")
     pats += [p.strip() for p in env.split(",") if p.strip()]
-    return pats
+    return pats or list(DEFAULT_ALLOW)
 
 
 def is_offline(explicit=False) -> bool:
