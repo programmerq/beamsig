@@ -240,18 +240,37 @@ def kitty(seed: str, cells: int = 4):
 # --- detection -------------------------------------------------------------
 
 def detect(stream=None) -> str:
-    """Pick a backend. Conservative: images only with nothing in the way."""
-    forced = (os.environ.get("BEAMSIG_AVATAR") or "").strip().lower()
-    if forced in BACKENDS and forced != "auto":
-        return forced
+    """Pick a backend.
+
+    BEAMSIG_AVATAR is a *preference*, not an override. `off` and `blocks` are
+    always safe and always honoured, but asking for an image does not get you
+    one when something is in the way: a pager mangles the escape sequence and
+    prints the base64 payload across the screen, which is worse than no
+    picture. Set BEAMSIG_AVATAR_FORCE=1 to insist anyway -- reasonable if your
+    pager does passthrough, otherwise expect a mess.
+    """
     if os.environ.get("NO_COLOR"):
         return "off"
+    want = (os.environ.get("BEAMSIG_AVATAR") or "").strip().lower()
+    if want not in BACKENDS:
+        want = ""
+    if want in ("off", "blocks"):
+        return want
 
     stream = stream or sys.stdout
+    # This is the check that actually does the work when git calls us: git
+    # captures the verify program's output through a pipe and replays it
+    # later, so our stdout is never the terminal, pager or not. Measured:
+    # GIT_PAGER_IN_USE is NOT set in the environment git gives
+    # gpg.ssh.program, so it is only a secondary signal for beamsig's own CLI.
     piped = not getattr(stream, "isatty", lambda: False)()
-    # git sets this when it has spawned a pager; our output is then buffered by
-    # git and replayed through less, where an image's geometry is untracked.
     paged = os.environ.get("GIT_PAGER_IN_USE") == "true"
+    forced = os.environ.get("BEAMSIG_AVATAR_FORCE") == "1"
+
+    if want in ("iterm", "kitty"):
+        if (piped or paged) and not forced:
+            return "blocks"
+        return want
 
     if piped or paged:
         return "blocks"

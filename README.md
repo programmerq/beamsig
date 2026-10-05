@@ -197,9 +197,28 @@ through `less` on a pty:
 | kitty APC | mangled | mangled |
 
 `less` eats the OSC introducer and prints the base64 payload as text across
-your screen. So `git log` always gets `blocks`, detected via
-`GIT_PAGER_IN_USE` and `isatty()`. Override with
-`BEAMSIG_AVATAR=off|blocks|iterm|kitty|auto`.
+your screen.
+
+So **`git log` always gets `blocks`**, and `BEAMSIG_AVATAR=iterm` will not
+change that. `BEAMSIG_AVATAR` is a *preference*, not an override: `off` and
+`blocks` are always honoured, but asking for an image only gets you one when
+nothing is in the way. What makes `git log` safe is not the pager — it is that
+git captures the verify program's output through a pipe and replays it later,
+so our stdout is never the terminal. (`GIT_PAGER_IN_USE` turns out not to be
+set in the environment git hands `gpg.ssh.program`; it is only a secondary
+signal for beamsig's own CLI.)
+
+| where | `BEAMSIG_AVATAR=iterm` gives you |
+|---|---|
+| `beamsig avatar` / `beamsig verify-commit` on a terminal | the image |
+| `git log` | half-blocks |
+| anything piped or redirected | half-blocks |
+| plus `BEAMSIG_AVATAR_FORCE=1` | the image, wherever you asked — including into a pager, where it will make a mess |
+
+`BEAMSIG_AVATAR_FORCE=1` is reasonable if your pager does escape passthrough.
+With `git --no-pager log` it will emit the image for git to write straight to
+the terminal, which is worth a try; geometry is still untracked, so expect the
+layout to be approximate.
 
 The avatar needs the generator plus `cairosvg` (for SVG rasterisation); without
 either it is silently skipped. **It is a recognition aid, never evidence** — a
