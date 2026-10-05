@@ -288,7 +288,13 @@ def side_by_side(avatar_lines, text_lines, gutter: int = 2):
     """
     if not avatar_lines:
         return list(text_lines)
-    cells = avatar_lines[0].count("\u2580") if "\u2580" in avatar_lines[0] else 0
+    cells = avatar_lines[0].count("\u2580")
+    if not cells:
+        # An inline image, not half-blocks. The terminal advances the cursor by
+        # the image's width on the first row only, so laying text alongside it
+        # would overlap rows 2..n. There is no portable way to ask how many
+        # cells it occupied, so stack instead of guessing.
+        return list(avatar_lines) + list(text_lines)
     pad = " " * (cells + gutter)
     out = []
     for i in range(max(len(avatar_lines), len(text_lines))):
