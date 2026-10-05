@@ -31,3 +31,6 @@ repos/
 
 # runtime log of the ssh-agent shim
 logs/agent.log
+
+# Local Claude Code settings
+.claude/

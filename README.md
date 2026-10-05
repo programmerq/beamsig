@@ -10,6 +10,11 @@ certificates are gone.
 works, what it proves, what it does not, exact commands and output, and a list
 of papercuts and feature requests.
 
+There is also a landing page in [`docs/`](docs/index.html) — a short explanation
+plus a verifier that checks the committed fixtures in your own browser, offline,
+against a pinned CA. Serve it with `cd docs && python3 -m http.server`, or enable
+GitHub Pages on this branch with the `/docs` folder as the source.
+
 ## The one thing to know before reading any code
 
 The tbot identity file at `$TELEPORT_IDENTITY_FILE` contains **no private key**.
@@ -325,6 +330,9 @@ word `Good` on a line *before* failing, so never grep for it.
 | `main.sh` | install onto a Beam over `tsh beams scp` / `exec` (no git access needed there) |
 | `setup-beamsig.sh` | runs on the Beam; unpacks, builds, configures, smoke-tests |
 | `docs/PRESENTATION-NOTES.md` | hand-off note for a UI / presentation layer, incl. the GitHub userscript route |
+| `extension/` | browser extension: shows beam signatures on GitHub, which reports them `unverified` |
+| `docs/index.html` | landing page (GitHub Pages): what beamsig is, plus a verifier that runs in the browser |
+| `bin/sync-site-libs.sh` | regenerate `docs/vendor/` from `extension/src/lib` and `fixtures/` |
 | `beamsig/` | the library (see below) |
 | `bin/beamsig` | CLI: `sign`, `verify`, `verify-commit`, `attest`, `verify-attestation`, `inspect` |
 | `bin/git-beamsig-keygen` | drop-in `gpg.ssh.program`: beam-aware `git log` / `git verify-commit`, and rotation-proof signing |

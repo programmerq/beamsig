@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>beamsig — provenance for agentic work</title>
+    <meta
+      name="description"
+      content="beamsig makes every git commit attributable to the Teleport Beam that produced it. The signature embeds the beam's certificate, so anyone can verify it offline, forever, with a 200-byte pinned CA."
+    />
+    <meta name="color-scheme" content="dark" />
+
+    <meta property="og:title" content="beamsig — provenance for agentic work" />
+    <meta
+      property="og:description"
+      content="Every commit, signed by the sandbox that made it. Verify it in your browser, offline."
+    />
+    <meta property="og:type" content="website" />
+
+    <!-- Inline so the page stays a self-contained drop-in with no binary assets. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230b0d2c'/%3E%3Cpath d='M7 23 L14 9 L17 9 L10 23 Z' fill='%2384e6cc'/%3E%3Cpath d='M16 23 L23 9 L26 9 L19 23 Z' fill='%23d4f0e8'/%3E%3C/svg%3E"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@300..600&family=Geist+Mono:wght@400;500&display=swap"
+    />
+    <link rel="stylesheet" href="assets/beamsig.css" />
+  </head>
+
+  <body>
+    <a class="sr-only" href="#main">Skip to content</a>
+
+    <header class="nav">
+      <div class="wrap nav-inner">
+        <a class="brand" href="#main">
+          <span><span class="brand-mark">▞</span> beamsig</span>
+          <span class="brand-sub">for Teleport Beams</span>
+        </a>
+        <nav class="nav-links" aria-label="Sections">
+          <a class="nav-hide-sm" href="#why">Why</a>
+          <a href="#verify">Verify</a>
+          <a class="nav-hide-sm" href="#how">How it works</a>
+          <a class="nav-hide-sm" href="#limits">Limits</a>
+          <a href="#quickstart">Quickstart</a>
+          <a href="https://github.com/programmerq/beamsig">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- ----------------------------------------------------------- hero -->
+      <section class="hero">
+        <div class="wrap hero-grid">
+          <div>
+            <p class="eyebrow">Beam-attributable signing</p>
+            <h1>Provenance for <span class="accent">agentic work</span>.</h1>
+            <p class="lede">
+              Every commit signed at the source with verifiable origin and
+              attribution.
+            </p>
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="#quickstart">Quickstart →</a>
+              <a class="btn btn-ghost" href="#verify">Verify a signature</a>
+            </div>
+            <p class="hero-note">Trusted provenance, from sandbox to commit.</p>
+          </div>
+
+          <div class="term" id="term">
+            <div class="term-bar">
+              <span class="term-dots" aria-hidden="true"
+                ><i></i><i></i><i></i
+              ></span>
+              <span class="term-title">beam signed commit</span>
+              <button class="term-replay" type="button" id="term-replay">
+                replay
+              </button>
+            </div>
+            <pre class="term-body" id="term-body" aria-live="off"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------------ why -->
+      <section class="section" id="why">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">The problem</p>
+            <h2>A swarm of agents commits code. Which one wrote this?</h2>
+            <p class="lede">
+              Agents run in ephemeral sandboxes and commit as the human who
+              launched them. Standard tooling cannot tell you which sandbox
+              produced an artifact — it was never designed to. Here is the same
+              signed commit, read three ways.
+            </p>
+          </div>
+
+          <div class="gap-grid">
+            <article class="panel gap-card">
+              <h3>What git reports</h3>
+              <pre>Good "git" signature for <span style="color: var(--alert)">root</span></pre>
+              <p>
+                Git can tell you a signature is valid, but not which agent did
+                the work. There is no identity here to tie the commit back to
+                anything.
+              </p>
+            </article>
+
+            <article class="panel gap-card">
+              <h3>What GitHub reports</h3>
+              <pre>Unverified
+<span class="c-dim">reason:</span> <span style="color: var(--alert)">unknown_signature_type</span></pre>
+              <p>
+                GitHub has the same blind spot. Neither tool gives you
+                provenance you can tie back to the agent that produced the
+                work.
+              </p>
+            </article>
+
+            <article class="panel gap-card is-truth">
+              <h3>What the certificate says</h3>
+              <pre>beam-1786bcd6-04b9-4b9e-ad87-0c13071df7e9
+<span class="c-dim">cluster</span>  jeff.beams.sh
+<span class="c-dim">owner</span>    jeff@goteleport.com</pre>
+              <p>
+                A beam-signed commit names the sandbox that produced it and the
+                Teleport session that launched the agent. That is provenance you
+                can verify after the fact and trace back through the cluster.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- --------------------------------------------------------- verify -->
+      <section class="section" id="verify">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">Proof, not marketing</p>
+            <h2>Verify a real beam signature.</h2>
+            <p class="lede">
+              Real signatures committed in the repository, verified by your
+              browser against a trusted certificate authority.
+            </p>
+          </div>
+
+          <div class="verify-layout">
+            <div class="case-list" id="case-list" role="group" aria-label="Signature cases">
+              <button class="case" type="button" data-case="signed" aria-pressed="false">
+                <span class="case-name">A genuine beam signature</span>
+                <span class="case-why">Signed with the beam's certificate</span>
+              </button>
+              <button class="case" type="button" data-case="tampered" aria-pressed="false">
+                <span class="case-name">Tampered payload</span>
+                <span class="case-why">One byte of the message changed</span>
+              </button>
+              <button class="case" type="button" data-case="bareKey" aria-pressed="false">
+                <span class="case-name">Signed with a bare key</span>
+                <span class="case-why">Valid signature, but no identity at all</span>
+              </button>
+              <button class="case" type="button" data-case="untrustedCa" aria-pressed="false">
+                <span class="case-name">Untrusted authority</span>
+                <span class="case-why">The pinned CA does not match</span>
+              </button>
+              <button class="case" type="button" data-case="backdated" aria-pressed="false">
+                <span class="case-name">Backdated</span>
+                <span class="case-why">Why the timestamp is a claim, not a fact</span>
+              </button>
+            </div>
+
+            <div class="panel result" id="result" aria-live="polite">
+              <div class="result-body">
+                <p class="lede" style="font-size: 15px">
+                  Pick a case to run a real verification in your browser.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <p class="verify-foot">
+            The same checks run in
+            <a href="https://github.com/programmerq/beamsig/tree/main/extension"
+              >the browser extension</a
+            >
+            and in <code>bin/beamsig verify</code>.
+          </p>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------------ how -->
+      <section class="section" id="how">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">How it works</p>
+            <h2>Three facts make a signature self-contained.</h2>
+          </div>
+
+          <div class="steps">
+            <article class="panel step">
+              <h3>The beam signs with its certificate</h3>
+              <p>
+                A beam's key lives behind Teleport's hardware key agent and
+                never leaves it. Signing with the <em>certificate</em> rather
+                than a bare key makes the SSHSIG blob embed the entire
+                certificate, so the evidence travels with the signature.
+              </p>
+            </article>
+
+            <article class="panel step">
+              <h3>The certificate names the beam</h3>
+              <p>
+                The beam identity lives in certificate extensions, not in the
+                parts tooling usually shows:
+                <code>bot-name@goteleport.com = beam-&lt;uuid&gt;</code>, plus
+                the instance and delegation session that produced it.
+              </p>
+            </article>
+
+            <article class="panel step">
+              <h3>Anyone verifies it offline</h3>
+              <p>
+                Checking a signature needs the signature, the payload, and the
+                ~200-byte Teleport user CA — pinned by value. No cluster, no
+                network, no beam. It still verifies years later, against a
+                long-expired certificate.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- --------------------------------------------------------- limits -->
+      <section class="section" id="limits">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">Read this before you trust it</p>
+            <h2>What a passing check does <em>not</em> mean.</h2>
+            <p class="lede">A verified beam signature is a narrow, precise claim.</p>
+          </div>
+
+          <div class="caveat-grid">
+            <article class="panel caveat">
+              <h3>The signer is a sandbox, never a person</h3>
+              <p>
+                The certificate's Key ID is the <em>owner</em> — a human — because
+                the beam impersonates them. Anything running inside the beam can
+                sign as the beam: the signing agent has no client auth, no PIN
+                and no touch.
+              </p>
+              <p class="wrong">✕ signed by jeff@goteleport.com</p>
+              <p class="right">
+                ✓ signed by beam 1786bcd6… · on behalf of jeff@goteleport.com
+                (impersonated, did not review this)
+              </p>
+            </article>
+
+            <article class="panel caveat">
+              <h3>The friendly alias proves nothing</h3>
+              <p>
+                Names like <code>clever-nebula</code> appear in no certificate,
+                extension or OID. The mapping from UUID to alias is live cluster
+                state that dies with the beam, and aliases may be reused later.
+              </p>
+              <p>
+                Only the UUID is attested, and that is the identifier worth
+                having: it is what lets you verify a commit later and trace it
+                back to the Teleport session that launched the agent.
+              </p>
+            </article>
+
+            <article class="panel caveat">
+              <h3>The timestamp is a window the signer chose</h3>
+              <p>
+                A beam's certificate rotates every ~20 minutes, but its key
+                never does. A signer can embed an older certificate it still
+                holds and so choose the window you see. Backdating within the
+                beam's lifetime is possible; forward-dating is not.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ----------------------------------------------------- quickstart -->
+      <section class="section" id="quickstart">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">Quickstart</p>
+            <h2>Sign every commit in your beam.</h2>
+            <p class="lede">
+              Run this inside a beam — signing needs the hardware key agent, which
+              only exists there. Verification, by contrast, runs anywhere.
+            </p>
+          </div>
+
+          <div class="qs-grid">
+            <div class="code-block">
+              <div class="code-block-head">
+                <span>inside a beam</span>
+                <button class="copy-btn" type="button" id="copy-qs">copy</button>
+              </div>
+              <pre id="qs-code"><span class="c-prompt">$</span> git clone https://github.com/programmerq/beamsig.git
+<span class="c-prompt">$</span> cd beamsig
+
+<span class="c-comment"># venv, gRPC stubs, and pin this cluster's CA</span>
+<span class="c-prompt">$</span> ./bin/setup.sh
+
+<span class="c-comment"># beam-wide git signing + a beam-aware git log</span>
+<span class="c-prompt">$</span> ./bin/install-global.sh
+
+<span class="c-comment"># every commit in this beam is now signed by the beam</span>
+<span class="c-prompt">$</span> git commit -m <span class="c-out">"fix the parser"</span>
+<span class="c-prompt">$</span> git log --format=<span class="c-out">'%GS'</span>
+<span class="c-out">beam-1786bcd6-04b9-4b9e-ad87-0c13071df7e9</span></pre>
+            </div>
+
+            <div class="qs-aside">
+              <div class="panel">
+                <h3>Ready to try it?</h3>
+                <p>
+                  Teleport Beams are trusted runtimes for agents: isolated,
+                  ephemeral, and auditable by default. Join the waitlist to get
+                  started.
+                </p>
+                <p>
+                  <a class="btn btn-primary" href="https://www.beams.run"
+                    >Get Teleport Beams →</a
+                  >
+                </p>
+              </div>
+
+              <div class="panel" style="margin-top: 18px">
+                <h3>Worth knowing</h3>
+                <p>
+                  <code>install-global.sh</code> writes
+                  <code>~/.gitconfig</code> and signs in <em>every</em>
+                  repository in the beam. Undo it with
+                  <code>./bin/install-global.sh --uninstall</code>.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap">
+        <div class="footer-grid">
+          <div>
+            <a class="brand" href="#main">
+              <span><span class="brand-mark">▞</span> beamsig</span>
+            </a>
+            <p style="margin-top: 10px; font-size: 13px">
+              Beam-attributable signing for commits and artifacts.
+            </p>
+          </div>
+          <nav class="footer-links" aria-label="Project links">
+            <a href="https://github.com/programmerq/beamsig">Repository</a>
+            <a href="https://github.com/programmerq/beamsig/tree/main/extension"
+              >Browser extension</a
+            >
+            <a href="https://www.beams.run">Teleport Beams</a>
+          </nav>
+        </div>
+        <p class="footer-note">A proof of concept, not a product.</p>
+      </div>
+    </footer>
+
+    <!-- Verification libraries, copied from extension/src/lib by
+         bin/sync-site-libs.sh. Load order is mandatory: each file destructures
+         its dependencies when it executes. These are classic scripts, not
+         modules — they attach to globalThis.Beamsig. -->
+    <script src="vendor/wire.js"></script>
+    <script src="vendor/sshcert.js"></script>
+    <script src="vendor/sshsig.js"></script>
+    <script src="vendor/sshcrypto.js"></script>
+    <script src="vendor/ca.js"></script>
+    <script src="vendor/verify.js"></script>
+    <script src="vendor/avatar.js"></script>
+    <script src="vendor/fixture-data.js"></script>
+    <script src="assets/site.js"></script>
+  </body>
+</html>

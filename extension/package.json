@@ -1,0 +1,15 @@
+{
+  "name": "beamsig-extension",
+  "private": true,
+  "description": "Dev tooling only. The extension itself has no dependencies and nothing to build.",
+  "scripts": {
+    "test": "node test/run-tests.mjs && node test/e2e-jsdom.mjs && node test/site-sync.mjs && node test/site-verify.mjs && node test/site-dom.mjs",
+    "test:e2e": "node test/e2e-jsdom.mjs",
+    "test:site": "node test/site-sync.mjs && node test/site-verify.mjs && node test/site-dom.mjs",
+    "test:live": "node test/verify-live.mjs",
+    "test:chrome": "node test/chrome-check.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

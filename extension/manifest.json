@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "beamsig — Teleport Beam commit signatures",
+  "version": "0.1.0",
+  "description": "Detects and displays Teleport Beam signatures on GitHub commits, which GitHub itself reports as Unverified because it has no notion of an SSH certificate authority.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://api.github.com/*", "https://*.beams.sh/*"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": {
+    "service_worker": "src/background.js",
+    "scripts": ["src/lib/discover.js", "src/background.js"]
+  },
+  "options_page": "src/options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "run_at": "document_idle",
+      "css": ["src/content.css"],
+      "js": [
+        "src/lib/wire.js",
+        "src/lib/sshcert.js",
+        "src/lib/sshsig.js",
+        "src/lib/sshcrypto.js",
+        "src/lib/ca.js",
+        "src/lib/verify.js",
+        "src/lib/discover.js",
+        "src/lib/avatar.js",
+        "src/github.js",
+        "src/ui.js",
+        "src/content.js"
+      ]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "beamsig@beams.sh",
+      "strict_min_version": "129.0"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+package-lock.json
+# Screenshots written by test/chrome-check.mjs. Regenerate with:
+#   node extension/test/chrome-check.mjs
+test/*.png
+# Python bytecode / generated contact sheet from tools/avatar
+tools/avatar/__pycache__/
+tools/avatar/contact_sheet.html

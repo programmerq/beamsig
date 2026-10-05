@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>beamsig options</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --fg: #1f2328;
+        --muted: #59636e;
+        --bg: #ffffff;
+        --subtle: #f6f8fa;
+        --border: #d1d9e0;
+        --warn: #9a6700;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --fg: #e6edf3;
+          --muted: #9198a1;
+          --bg: #0d1117;
+          --subtle: #151b23;
+          --border: #3d444d;
+          --warn: #d29922;
+        }
+      }
+      body {
+        margin: 0 auto;
+        padding: 24px 20px 48px;
+        max-width: 680px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+          sans-serif;
+      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      h2 { font-size: 13px; margin: 24px 0 6px; text-transform: uppercase;
+           letter-spacing: 0.04em; color: var(--muted); }
+      p.lede { color: var(--muted); margin: 0 0 8px; font-size: 13px; }
+      label { display: block; margin: 8px 0 2px; font-weight: 600; font-size: 13px; }
+      .hint { color: var(--muted); font-size: 12px; margin: 2px 0 8px; }
+      input[type="text"], input[type="password"], input[type="number"], textarea {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        box-sizing: border-box;
+      }
+      textarea { min-height: 90px; resize: vertical; }
+      .check { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+      .check input { margin: 0; }
+      .check label { margin: 0; font-weight: 400; }
+      button {
+        margin: 14px 8px 0 0;
+        padding: 6px 14px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--subtle);
+        color: var(--fg);
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:hover { filter: brightness(1.08); }
+      .note {
+        margin: 14px 0;
+        padding: 10px 12px;
+        border-left: 3px solid var(--warn);
+        background: var(--subtle);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .pin {
+        padding: 8px 10px;
+        background: var(--subtle);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 11px;
+        word-break: break-all;
+      }
+      #status { margin-left: 4px; font-size: 12px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <h1>beamsig</h1>
+    <p class="lede">
+      Verifies Teleport Beam signatures on GitHub commits in your browser. GitHub
+      reports these as <strong>Unverified</strong> because it matches SSH
+      signatures only against registered keys and has no notion of an SSH
+      certificate authority — that is GitHub's model, not a defect in the
+      signature.
+    </p>
+
+    <h2>Trust anchor</h2>
+    <p class="hint">
+      Shipped pinned CA, compiled into the extension and checked against its
+      recorded fingerprint on every page:
+    </p>
+    <div class="pin" id="shipped-ca">loading…</div>
+
+    <label for="discoverAllow">Discover CAs for unseen clusters</label>
+    <div class="hint">
+      On by default for every Beams tenant (<code>*.beams.sh</code>), so commits
+      from a tenant you have not seen verify with no setup. A signature's
+      certificate names the cluster it claims to come from; that name is only a
+      claim by whoever signed it, so a fetched CA shows the signer controls a
+      Teleport cluster at that hostname, not that you should trust it. Panels say
+      the CA was <em>discovered</em>. The first CA fetched for a cluster is pinned
+      and never overwritten. One glob pattern per line; empty turns discovery off.
+      See <code>beamsig/discover.py</code> for the full argument.
+    </div>
+    <textarea id="discoverAllow" spellcheck="false" style="min-height: 48px"
+      placeholder="*.beams.sh"></textarea>
+    <p class="hint">Discovered so far (compare these with the cluster out of band):</p>
+    <div class="pin" id="discovered-ca">none</div>
+    <button id="forgetDiscovered" type="button">Forget discovered CAs</button>
+
+    <label for="extraCAs">Additional CAs (one per line)</label>
+    <div class="hint">
+      Teleport export format from
+      <code>/webapi/auth/export?type=user</code>, or any line containing the
+      base64 key. Only add a CA you obtained yourself — a signature accepted by
+      one of these is flagged in the panel as resting on a trust anchor the
+      extension did not ship.
+    </div>
+    <textarea id="extraCAs" spellcheck="false"
+      placeholder="cert-authority ecdsa-sha2-nistp256 AAAA… clustername=example.beams.sh&amp;type=user"></textarea>
+
+    <h2>GitHub API</h2>
+    <label for="githubToken">Personal access token (optional)</label>
+    <div class="hint">
+      Unauthenticated requests are limited to 60/hour per IP, which a few commit
+      pages will exhaust. A token raises that to 5,000/hour and is also needed
+      for private repositories. Read-only / <code>public_repo</code> is enough.
+    </div>
+    <input type="password" id="githubToken" autocomplete="off" spellcheck="false" />
+    <div class="note">
+      The token is stored unencrypted in this extension's local storage, which
+      any code running in the extension can read. Use a scoped, short-lived
+      token, or leave it empty and accept the lower rate limit.
+    </div>
+
+    <h2>Commit lists</h2>
+    <div class="check">
+      <input type="checkbox" id="annotateLists" />
+      <label for="annotateLists">Annotate rows on commit-list and PR pages</label>
+    </div>
+    <div class="hint">
+      Each row costs one API call, because GitHub's list endpoint carries no
+      signature data. Results are cached permanently (a commit's signature never
+      changes), so revisiting a page is free.
+    </div>
+    <label for="listBudget">Maximum rows to check per page view</label>
+    <input type="number" id="listBudget" min="0" max="100" step="1" />
+
+    <div>
+      <button id="save">Save</button>
+      <button id="clearCache">Clear signature cache</button>
+      <span id="status"></span>
+    </div>
+
+    <script src="lib/wire.js"></script>
+    <script src="lib/ca.js"></script>
+    <script src="lib/discover.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>beamsig panel preview</title>
+    <link rel="stylesheet" href="../src/content.css" />
+    <style>
+      body {
+        margin: 0 auto;
+        padding: 24px 20px 64px;
+        max-width: 820px;
+        background: var(--bg, #fff);
+        color: var(--fg, #1f2328);
+        font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+          sans-serif;
+      }
+      :root { color-scheme: light dark; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0d1117; color: #e6edf3; }
+      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      p.lede { color: #59636e; font-size: 13px; margin: 0 0 20px; }
+      h2 {
+        font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+        color: #59636e; margin: 28px 0 2px;
+      }
+      .rowdemo { padding: 8px 0; border-top: 1px solid #d1d9e0; }
+      code { font-size: 12px; }
+      .toggle { margin-bottom: 16px; }
+    </style>
+  </head>
+  <body>
+    <h1>beamsig panel preview</h1>
+    <p class="lede">
+      Renders every panel state from the committed fixtures, with real
+      verification — no GitHub, no beam, no network. Open this file directly.
+      Regenerate the fixture data with
+      <code>node extension/test/make-preview-data.mjs</code>.
+    </p>
+
+    <div class="toggle">
+      <button id="theme">Toggle dark mode</button>
+    </div>
+
+    <h2>Verified beam signature</h2>
+    <div id="out-ok"></div>
+
+    <h2>Signature does not match the payload</h2>
+    <div id="out-tampered"></div>
+
+    <h2>Valid signature, but not a beam (bare key, no certificate)</h2>
+    <div id="out-barekey"></div>
+
+    <h2>Untrusted CA</h2>
+    <div id="out-badca"></div>
+
+    <h2>No signature on the commit</h2>
+    <p class="lede">Renders nothing by design — an unsigned commit gets no panel.</p>
+
+    <h2>Compact badges, as used on commit-list rows</h2>
+    <div class="rowdemo">
+      <span>Make git beam-aware beam-wide</span><span id="out-badge"></span>
+    </div>
+    <div class="rowdemo">
+      <span>A commit whose beam signature failed</span><span id="out-badge-bad"></span>
+    </div>
+
+    <script src="preview-data.js"></script>
+    <script src="../src/lib/wire.js"></script>
+    <script src="../src/lib/sshcert.js"></script>
+    <script src="../src/lib/sshsig.js"></script>
+    <script src="../src/lib/sshcrypto.js"></script>
+    <script src="../src/lib/ca.js"></script>
+    <script src="../src/lib/verify.js"></script>
+    <script src="../src/lib/discover.js"></script>
+    <script src="../src/lib/avatar.js"></script>
+    <script src="../src/ui.js"></script>
+    <script>
+      (async () => {
+        const { wire, verify, ca, ui } = globalThis.Beamsig;
+        const P = globalThis.BEAMSIG_PREVIEW;
+        const put = (id, node) => document.getElementById(id).appendChild(node);
+
+        const cas = await verify.loadPinnedCAs(ca.PINNED_CAS);
+        const payload = wire.TE.encode(P.message);
+        const opts = {
+          namespace: "git",
+          claimedTime: P.claimedTime,
+          claimedTimeSource: "git committer date",
+        };
+
+        const show = async (id, sig, pl, cs, o) => {
+          try {
+            const att = await verify.verifySSHSig(sig, pl, cs, o);
+            put(id, ui.panel(att, {}));
+            return att;
+          } catch (e) {
+            put(id, ui.failPanel("Beam signature did NOT verify", e.message, {}, "bad"));
+            return null;
+          }
+        };
+
+        const att = await show("out-ok", P.signature, payload, cas, opts);
+
+        await show(
+          "out-tampered",
+          P.signature,
+          wire.TE.encode("not the signed payload"),
+          cas,
+          opts
+        );
+
+        try {
+          await verify.verifySSHSig(P.bareKeySignature, payload, cas, opts);
+        } catch (e) {
+          put("out-barekey", ui.failPanel("Not a beam signature", e.message, {}, "info"));
+        }
+
+        const brokenCAs = cas.map((c) => {
+          const blob = c.blob.slice();
+          blob[blob.length - 1] ^= 0xff;
+          return { ...c, blob };
+        });
+        try {
+          await verify.verifySSHSig(P.signature, payload, brokenCAs, opts);
+        } catch (e) {
+          put("out-badca", ui.failPanel("Not a beam signature", e.message, {}, "info"));
+        }
+
+        if (att) {
+          put("out-badge", ui.badge(att));
+          put("out-badge-bad", ui.badgeFail("claimed time is outside the certificate window"));
+        }
+
+        document.getElementById("theme").addEventListener("click", () => {
+          const html = document.documentElement;
+          const now = html.getAttribute("data-color-mode") === "dark" ? "light" : "dark";
+          html.setAttribute("data-color-mode", now);
+          html.style.colorScheme = now;
+          document.body.style.background = now === "dark" ? "#0d1117" : "#fff";
+          document.body.style.color = now === "dark" ? "#e6edf3" : "#1f2328";
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,226 @@
+/* beamsig — GitHub commit signature panel.
+   Colours follow GitHub's own tokens where they exist (--fgColor-*, --bgColor-*)
+   and fall back to literals, so the panel works on both the old and new GitHub
+   themes and in light/dark. GitHub sets html[data-color-mode]. */
+
+.beamsig-panel {
+  --bs-fg: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  --bs-muted: var(--fgColor-muted, var(--color-fg-muted, #59636e));
+  --bs-bg: var(--bgColor-default, var(--color-canvas-default, #ffffff));
+  --bs-subtle: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+  --bs-border: var(--borderColor-default, var(--color-border-default, #d1d9e0));
+  --bs-ok: var(--fgColor-success, var(--color-success-fg, #1a7f37));
+  --bs-bad: var(--fgColor-danger, var(--color-danger-fg, #cf222e));
+  --bs-warn: var(--fgColor-attention, var(--color-attention-fg, #9a6700));
+  --bs-accent: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+
+  margin: 12px 0;
+  padding: 0;
+  border: 1px solid var(--bs-border);
+  border-radius: 6px;
+  background: var(--bs-bg);
+  color: var(--bs-fg);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+  max-width: 760px;
+}
+
+.beamsig-panel.beamsig-floating {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483000;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(70vh, 720px);
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+/* ---- header ---- */
+
+.beamsig-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bs-subtle);
+  border-bottom: 1px solid var(--bs-border);
+}
+
+.beamsig-check {
+  flex: 0 0 auto;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.beamsig-ok .beamsig-check { color: var(--bs-ok); }
+.beamsig-bad .beamsig-check { color: var(--bs-bad); }
+.beamsig-info .beamsig-check { color: var(--bs-muted); }
+
+.beamsig-head-text { min-width: 0; }
+
+/* Generated robot for the beam (see src/lib/avatar.js). */
+.beamsig-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.beamsig-avatar svg { display: block; width: 100%; height: 100%; }
+
+.beamsig-avatar-lg {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px var(--bs-border);
+}
+
+.beamsig-avatar-sm {
+  width: 14px;
+  height: 14px;
+  margin-left: -4px;
+  border-radius: 50%;
+}
+
+.beamsig-head-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.beamsig-head-sub {
+  color: var(--bs-muted);
+  font-size: 11px;
+  margin-top: 1px;
+}
+
+/* ---- sections ---- */
+
+.beamsig-section {
+  padding: 8px 12px;
+}
+
+/* Separators between sections only. The head and the footer draw their own, so
+   a border on the last section would double up against the footer's. */
+.beamsig-section + .beamsig-section {
+  border-top: 1px solid var(--bs-border);
+}
+
+.beamsig-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bs-muted);
+  margin-bottom: 4px;
+}
+
+.beamsig-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 1px 0;
+}
+
+.beamsig-label {
+  color: var(--bs-muted);
+  white-space: nowrap;
+}
+
+.beamsig-value {
+  font-family: var(--fontStack-monospace, ui-monospace, SFMono-Regular, "SF Mono",
+    Menlo, Consolas, "Liberation Mono", monospace);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+/* The three tiers, visually distinct. */
+.beamsig-tier-attested { color: var(--bs-fg); }
+.beamsig-tier-selfreported { color: var(--bs-warn); }
+.beamsig-tier-unchecked {
+  color: var(--bs-muted);
+  font-style: italic;
+}
+
+.beamsig-note {
+  grid-column: 2;
+  color: var(--bs-muted);
+  font-size: 10px;
+  font-style: italic;
+}
+
+.beamsig-owner .beamsig-note { color: var(--bs-warn); font-style: normal; }
+
+/* ---- caveats and warnings ---- */
+
+.beamsig-caveat,
+.beamsig-warning {
+  position: relative;
+  padding-left: 12px;
+  margin: 3px 0;
+  font-size: 11px;
+  color: var(--bs-muted);
+}
+
+.beamsig-caveat::before,
+.beamsig-warning::before {
+  content: "!";
+  position: absolute;
+  left: 0;
+  font-weight: 600;
+  color: var(--bs-warn);
+}
+
+/* ---- footer ---- */
+
+.beamsig-footer {
+  padding: 5px 12px;
+  background: var(--bs-subtle);
+  border-top: 1px solid var(--bs-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.beamsig-footer-text {
+  font-size: 10px;
+  color: var(--bs-muted);
+  letter-spacing: 0.04em;
+}
+
+/* ---- compact badge for commit lists ---- */
+
+.beamsig-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 0 6px;
+  height: 18px;
+  border: 1px solid var(--borderColor-default, var(--color-border-default, #d1d9e0));
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 500;
+  vertical-align: middle;
+  cursor: help;
+  white-space: nowrap;
+}
+
+.beamsig-badge-ok {
+  color: var(--fgColor-success, var(--color-success-fg, #1a7f37));
+  border-color: var(--borderColor-success-emphasis, rgba(26, 127, 55, 0.4));
+}
+
+.beamsig-badge-bad {
+  color: var(--fgColor-danger, var(--color-danger-fg, #cf222e));
+  border-color: var(--borderColor-danger-emphasis, rgba(207, 34, 46, 0.4));
+}
+
+.beamsig-badge-check { font-weight: 700; }
+
+.beamsig-badge-text {
+  font-family: var(--fontStack-monospace, ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace);
+}

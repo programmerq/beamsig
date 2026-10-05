@@ -197,8 +197,11 @@ Today we push to a private host, not GitHub. If we did push there:
 GitHub **cannot** verify these commits. It verifies SSH signatures only against
 SSH keys a user has registered as signing keys; it has no notion of an SSH
 certificate authority, and our signature's public key is a *certificate* issued
-by the Teleport user CA. Expect the badge to read **Unverified** with
-`reason: unknown_key`. That is GitHub's model, not a bug in the signature.
+by the Teleport user CA. The badge reads **Unverified** with
+`reason: unknown_signature_type` — measured against the pushed commits, not
+`unknown_key` as first guessed: GitHub does not recognise the *key type*
+`ecdsa-sha2-nistp256-cert-v01@openssh.com` at all, so it never gets as far as
+looking for a matching key. That is GitHub's model, not a bug in the signature.
 
 A userscript (Greasemonkey/Violentmonkey) can fix the display, and the data is
 available without cloning:

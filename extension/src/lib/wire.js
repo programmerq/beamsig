@@ -1,0 +1,153 @@
+// Minimal SSH wire-format (RFC 4251) reader/writer over Uint8Array.
+// Port of beamsig/wire.py. Loaded as a plain script; attaches to globalThis.Beamsig.
+(function (root) {
+  "use strict";
+
+  const TE = new TextEncoder();
+  const TD = new TextDecoder("utf-8", { fatal: false });
+
+  class Reader {
+    constructor(data) {
+      this.d = data;
+      this.i = 0;
+    }
+
+    remaining() {
+      return this.d.subarray(this.i);
+    }
+
+    eof() {
+      return this.i >= this.d.length;
+    }
+
+    need(n) {
+      if (this.i + n > this.d.length) throw new Error("truncated SSH wire data");
+    }
+
+    u8() {
+      this.need(1);
+      return this.d[this.i++];
+    }
+
+    u32() {
+      this.need(4);
+      const d = this.d;
+      const i = this.i;
+      this.i += 4;
+      // Avoid << 24 sign issues.
+      return d[i] * 0x1000000 + ((d[i + 1] << 16) | (d[i + 2] << 8) | d[i + 3]);
+    }
+
+    // uint64. SSH certs use this for serial and the validity timestamps, which
+    // are well inside 2^53, so a Number is safe and much easier to work with.
+    u64() {
+      const hi = this.u32();
+      const lo = this.u32();
+      const v = hi * 0x100000000 + lo;
+      if (!Number.isSafeInteger(v)) throw new Error("uint64 exceeds safe integer range");
+      return v;
+    }
+
+    string() {
+      const n = this.u32();
+      this.need(n);
+      const v = this.d.subarray(this.i, this.i + n);
+      this.i += n;
+      return v;
+    }
+
+    cstring() {
+      return TD.decode(this.string());
+    }
+
+    // An SSH string containing a sequence of embedded strings.
+    namelist() {
+      const inner = new Reader(this.string());
+      const out = [];
+      while (!inner.eof()) out.push(inner.cstring());
+      return out;
+    }
+  }
+
+  class Writer {
+    constructor() {
+      this.chunks = [];
+      this.len = 0;
+    }
+
+    raw(v) {
+      this.chunks.push(v);
+      this.len += v.length;
+      return this;
+    }
+
+    u8(v) {
+      return this.raw(new Uint8Array([v & 0xff]));
+    }
+
+    u32(v) {
+      const b = new Uint8Array(4);
+      b[0] = (v >>> 24) & 0xff;
+      b[1] = (v >>> 16) & 0xff;
+      b[2] = (v >>> 8) & 0xff;
+      b[3] = v & 0xff;
+      return this.raw(b);
+    }
+
+    string(v) {
+      const b = typeof v === "string" ? TE.encode(v) : v;
+      this.u32(b.length);
+      return this.raw(b);
+    }
+
+    bytes() {
+      const out = new Uint8Array(this.len);
+      let o = 0;
+      for (const c of this.chunks) {
+        out.set(c, o);
+        o += c.length;
+      }
+      return out;
+    }
+  }
+
+  function concat(...parts) {
+    let n = 0;
+    for (const p of parts) n += p.length;
+    const out = new Uint8Array(n);
+    let o = 0;
+    for (const p of parts) {
+      out.set(p, o);
+      o += p.length;
+    }
+    return out;
+  }
+
+  function equal(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  function b64decode(s) {
+    const bin = atob(s.replace(/\s+/g, ""));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function b64encode(bytes) {
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+
+  function hex(bytes) {
+    let s = "";
+    for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, "0");
+    return s;
+  }
+
+  const ns = (root.Beamsig = root.Beamsig || {});
+  ns.wire = { Reader, Writer, concat, equal, b64decode, b64encode, hex, TE, TD };
+})(typeof globalThis !== "undefined" ? globalThis : self);
