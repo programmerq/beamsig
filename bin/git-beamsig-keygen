@@ -419,10 +419,29 @@ def _explain_unknown_tenant(sig, payload, argv):
         return
     unknown = None
     try:
-        vmod.verify_sshsig(sig, payload, trust_anchors(),
-                           namespace="git", claimed_time=verify_time(argv),
-                           require_beam=True)
-        return                            # trusted after all; nothing to add
+        att = vmod.verify_sshsig(sig, payload, trust_anchors(),
+                                 namespace="git",
+                                 claimed_time=verify_time(argv),
+                                 require_beam=True)
+        # We can verify it but stock ssh-keygen could not, which means
+        # allowed_signers has fallen behind the trust store -- e.g. after
+        # install-global.sh rewrote it, or a CA was pinned by hand. Without
+        # this the commit stays at %G?=U forever, because the discovery path
+        # that normally rewrites the file is never reached.
+        try:
+            from beamsig import allowedsigners
+            target = git_allowed_signers() or allowedsigners.default_path()
+            n = allowedsigners.sync(target)
+            if n >= 0:
+                print(c("33", f"allowed_signers was out of step with the trust "
+                              f"store for {att.cluster}; regenerated it "
+                              f"({n} CAs). Re-run git to verify."))
+            else:
+                print(c("33", f"{target} is hand-maintained and lacks the CA "
+                              f"for {att.cluster}; add it to verify this."))
+        except Exception:
+            pass
+        return
     except vmod.UnknownTenant as exc:
         unknown = exc                     # `except ... as e` unbinds e on exit
     except Exception:

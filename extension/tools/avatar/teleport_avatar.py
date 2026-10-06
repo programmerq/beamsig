@@ -1,6 +1,6 @@
 """Deterministic seed -> robot avatar SVG.
 
-Robot generator by Jeff (jeff@goteleport.com).
+Robot generator by Jeff.
 
 Look: grey paneled robots with color highlights (most of the time), plus a
 rare "solid" variant where the body takes the highlight color and the

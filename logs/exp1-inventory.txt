@@ -15,7 +15,7 @@
   keytype             : ecdsa-sha2-nistp256-cert-v01@openssh.com
   serial              : 0
   type                : 1 (user)
-  key id              : jeff@goteleport.com     <-- OWNER (impersonation)
+  key id              : owner@example.com     <-- OWNER (impersonation)
   principals          : ['root', 'beams', '-teleport-internal-join']
   valid after         : 1791210987 2026-10-05T14:36:27+00:00
   valid before        : 1791214647 2026-10-05T15:37:27+00:00
@@ -55,7 +55,7 @@
     2.5.4.10           organizationName       = editor
     2.5.4.10           organizationName       = auditor
     2.5.4.10           organizationName       = beam-user
-    2.5.4.3            commonName             = jeff@goteleport.com
+    2.5.4.3            commonName             = owner@example.com
     1.3.9999.1.7       AppName                = jeff.beams.sh
     1.3.9999.1.9       Unknown OID            = 52.3.207.254
     1.3.9999.2.9       ClientIP               = true

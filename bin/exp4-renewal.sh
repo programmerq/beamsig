@@ -40,7 +40,7 @@ commit_now() { # commit_now <label>
 if [ "${1:-}" = "init" ]; then
   rm -rf "$R"; mkdir -p "$R"; git init -q "$R"
   git -C "$R" config user.name "beam-$BEAM_ID"
-  git -C "$R" config user.email "jeff@goteleport.com"
+  git -C "$R" config user.email "owner@example.com"
   git -C "$R" config gpg.format ssh
   git -C "$R" config user.signingkey "$LAB/exp2/beam-cert.pub"
   git -C "$R" config gpg.ssh.allowedSignersFile "$LAB/exp2/allowed_signers"

@@ -18,7 +18,7 @@ FILE               : exp2/sig-from-cert.sig  (2075 bytes armored, 1491 bytes raw
   inner sig alg    : ecdsa-sha2-nistp256
   IS CERTIFICATE   : True
   --- certificate recovered FROM THE SIGNATURE ALONE ---
-    key id                 : jeff@goteleport.com
+    key id                 : owner@example.com
     principals             : ['root', 'beams', '-teleport-internal-join']
     valid                  : 2026-10-05T14:36:27+00:00 .. 2026-10-05T15:37:27+00:00
     CA fingerprint         : SHA256:c/8F7ipW3zBqBRe0Eau/ZBDU8hpFtLzZI9bH32668UU

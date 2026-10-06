@@ -44,12 +44,24 @@
     },
     { cls: "c-out", text: "  beam alias    luminous-locator" },
     { cls: "c-out", text: "  bot instance  dbe1cf6c-8f89-4ab3-bfee-9e2c7e710f6c" },
-    { cls: "c-out", text: "  owner         jeff@goteleport.com" },
+    { cls: "c-out", text: "  owner         owner@example.com" },
     { cls: "c-warn", text: "                (impersonated — did not review this)" },
     { cls: "c-out", text: "  cert window   16:16:27Z .. 17:17:27Z" },
     { cls: "c-warn", text: "                (window chosen by signer)" },
     { cls: "c-key", text: "  teleport CA   SHA256:c/8F7ipW3zBqBRe0Eau/…  (pinned)" },
   ];
+
+  // The owner's address is the certificate's Key ID, so it is permanently
+  // inside every beam signature -- including the fixtures this page verifies.
+  // This is a public page, so mask the local part for display. The label says
+  // it is masked, because the point being taught is that verification *does*
+  // reveal the owner; the address just does not need publishing.
+  function maskOwner(addr) {
+    if (!addr) return addr;
+    const at = addr.lastIndexOf("@");
+    if (at < 1) return "\u2022\u2022\u2022";
+    return addr[0] + "\u2022\u2022\u2022" + addr.slice(at);
+  }
 
   function runTerminal(body, onDone) {
     body.textContent = "";
@@ -240,7 +252,7 @@
       el(
         "div",
         "verdict-sub",
-        "on behalf of " + att.owner + " — owner, impersonated, did not review this"
+        "on behalf of " + maskOwner(att.owner) + " — owner, impersonated, did not review this"
       )
     );
     head.appendChild(v);
@@ -264,9 +276,9 @@
     addFact(
       dl,
       "owner",
-      att.owner,
+      maskOwner(att.owner),
       "attested",
-      "the human the beam impersonates — not the signer"
+      "the human the beam impersonates — not the signer (masked here)"
     );
     addFact(
       dl,

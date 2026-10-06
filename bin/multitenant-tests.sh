@@ -53,7 +53,7 @@ ssh-keygen -q -s otherca -I 'alice@example.sh' -n root,beams -V -5m:+60m \
 
 # the attack: tenant 2's CA mints a cert CLAIMING to belong to tenant 1
 cp otheruser spoof; cp otheruser.pub spoof.pub
-ssh-keygen -q -s otherca -I 'jeff@goteleport.com' -n root,beams -V -5m:+60m \
+ssh-keygen -q -s otherca -I 'owner@example.com' -n root,beams -V -5m:+60m \
   -O extension:bot-name@goteleport.com="beam-$OTHER_BEAM" \
   -O "extension:teleport-route-to-cluster=$REAL_CLUSTER" \
   spoof.pub

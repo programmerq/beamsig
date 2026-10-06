@@ -1,6 +1,6 @@
 # Beam-attributable signing on Teleport Beams — hackathon PoC report
 
-Beam: `clever-nebula` / `1786bcd6-04b9-4b9e-ad87-0c13071df7e9`, cluster `jeff.beams.sh`, owner `jeff@goteleport.com`.
+Beam: `clever-nebula` / `1786bcd6-04b9-4b9e-ad87-0c13071df7e9`, cluster `jeff.beams.sh`, owner `owner@example.com`.
 No private key material was extracted (it turns out it cannot be).
 
 Experiments were originally run in a scratch directory `/tmp/beamsig-lab`; the
@@ -108,7 +108,7 @@ The service (`api/proto/teleport/hardwarekeyagent/v1`) is a clean generic oracle
 keytype      : ecdsa-sha2-nistp256-cert-v01@openssh.com
 serial       : 0
 type         : 1 (user)
-key id       : jeff@goteleport.com          <-- the OWNER, not the beam
+key id       : owner@example.com          <-- the OWNER, not the beam
 principals   : ['root', 'beams', '-teleport-internal-join']
 valid        : 2026-10-05T14:36:27Z .. 2026-10-05T15:37:27Z   (3660s = 61 min)
 CA           : SHA256:c/8F7ipW3zBqBRe0Eau/ZBDU8hpFtLzZI9bH32668UU
@@ -182,7 +182,7 @@ sig-from-key.sig    publickey field : 104 bytes,  type=ecdsa-sha2-nistp256
 sig-from-cert.sig   publickey field : 1351 bytes, type=ecdsa-sha2-nistp256-cert-v01@openssh.com
                     IS CERTIFICATE  : True
   --- certificate recovered FROM THE SIGNATURE ALONE ---
-    key id     : jeff@goteleport.com
+    key id     : owner@example.com
     valid      : 2026-10-05T14:36:27Z .. 2026-10-05T15:37:27Z
     CA         : SHA256:c/8F7ipW3zBqBRe0Eau/ZBDU8hpFtLzZI9bH32668UU
     ext bot-name@goteleport.com              = beam-1786bcd6-04b9-4b9e-ad87-0c13071df7e9
@@ -220,7 +220,7 @@ The SSH user CA from `export?type=user` is byte-identical to the `signature_key`
 -I 'root'                                      rc=0    Good "git" signature for root
 -I 'beams'                                     rc=0    Good "git" signature for beams
 -I '-teleport-internal-join'                   rc=0    Good "git" signature
--I 'jeff@goteleport.com'                       rc=255  Certificate invalid: name is not a listed principal
+-I 'owner@example.com'                       rc=255  Certificate invalid: name is not a listed principal
 -I 'beam-1786bcd6-04b9-4b9e-ad87-0c13071df7e9' rc=255  Certificate invalid: name is not a listed principal
 
 $ ssh-keygen -Y find-principals -s sig-from-cert.sig -f allowed_signers
@@ -325,7 +325,7 @@ BEAM SIGNATURE ATTESTATION
   bot name             : beam-1786bcd6-04b9-4b9e-ad87-0c13071df7e9
   bot instance id      : dbe1cf6c-8f89-4ab3-bfee-9e2c7e710f6c   (stable per beam boot)
   delegation session   : bd204fe3-1653-429c-bc81-b64d5a3d514f
-  owner (cert Key ID)  : jeff@goteleport.com   (impersonated human, NOT the signer)
+  owner (cert Key ID)  : owner@example.com   (impersonated human, NOT the signer)
   teleport roles       : editor, access, auditor, beam-user
   -- time --
   cert valid after     : 1791210987 2026-10-05T14:36:27+00:00
@@ -429,7 +429,7 @@ But note **why** the forged-timestamp case fails: git does **not** pass the comm
 ```
 $ tsh beams ls --format=json
 [{"id":"clever-nebula","uuid":"1786bcd6-04b9-4b9e-ad87-0c13071df7e9",
-  "owner":"jeff@goteleport.com","expires":"2026-10-06T13:54:29Z",
+  "owner":"owner@example.com","expires":"2026-10-06T13:54:29Z",
   "url":"tcp://clever-nebula-1786.jeff.beams.sh:8080","region":"us-east-1"}]
 
 $ tctl --auth-server=$TELEPORT_PROXY bots instances ls
@@ -457,7 +457,7 @@ $ tsh recordings ls --last 24h          # works, returns app-chunk sessions
 $ tctl ... audit query exec "select time, cert_type, identity_user, identity_impersonator,
       identity_expires, identity_disallow_reissue from cert_create
       where event_date = date '2026-10-05' order by time desc limit 12"
-2026-10-05T14:57:27.836Z user jeff@goteleport.com                ""              2026-10-05T15:57:27.815Z true
+2026-10-05T14:57:27.836Z user owner@example.com                ""              2026-10-05T15:57:27.815Z true
 2026-10-05T14:57:27.277Z user bot-beam-1786bcd6-...              ""              2026-10-05T15:57:27.118Z
 2026-10-05T14:57:27.154Z user bot-beam-1786bcd6-...  bot-beam-1786bcd6-...        2026-10-05T15:57:27.109Z true
 ```
@@ -465,10 +465,10 @@ $ tctl ... audit query exec "select time, cert_type, identity_user, identity_imp
 The first row **is** our cert (`identity_expires` 15:57:27 matches the cert window exactly). But:
 
 * `cert_create` has 43 columns and **none** of them are `bot_name`, `bot_instance_id`, certificate **serial**, or a **public-key fingerprint**.
-* The event for the actual beam cert has `identity_user = jeff@goteleport.com` and `identity_impersonator = ""` — **empty**. The beam is invisible in its own cert issuance event.
+* The event for the actual beam cert has `identity_user = owner@example.com` and `identity_impersonator = ""` — **empty**. The beam is invisible in its own cert issuance event.
 * `bot_join` has `bot_name` but no `bot_instance_id`.
 
-**Conclusion: a verifier cannot cryptographically correlate a signature to an audit event today.** You can show "a certificate with this expiry was issued around then", but several unrelated `jeff@goteleport.com` certs share the same second, and nothing in the event binds the key that made the signature. Audit anchoring would remove reliance on the self-reported timestamp — it is the right fix — but it needs the schema additions in §6.
+**Conclusion: a verifier cannot cryptographically correlate a signature to an audit event today.** You can show "a certificate with this expiry was issued around then", but several unrelated `owner@example.com` certs share the same second, and nothing in the event binds the key that made the signature. Audit anchoring would remove reliance on the self-reported timestamp — it is the right fix — but it needs the schema additions in §6.
 
 ---
 
@@ -647,7 +647,7 @@ made to sign. This beam (`clever-nebula`) verified it.
 $ git log --show-signature -1 origin/vapor-jet-demo
 Good "git" signature for beam-8bba9461-0638-4a00-9752-c9064f9d832f with ECDSA-CERT key SHA256:FVjefo3v…
   bot instance  c39a4a51-f694-47ef-abc2-bb96340810d7
-  owner         jeff@goteleport.com  (impersonated, NOT the signer)
+  owner         owner@example.com  (impersonated, NOT the signer)
   cert window   2026-10-05T17:16:27Z .. 2026-10-05T18:17:27Z
   teleport CA   SHA256:c/8F7ipW3zBqBRe0Eau/ZBDU8hpFtLzZI9bH32668UU
 ```
@@ -673,13 +673,13 @@ good, reviewed, or from anyone you ought to listen to.
 1. The payload is byte-exact (ECDSA P-256 over SSHSIG signed-data).
 2. The signing key was certified by the **Teleport user CA of cluster `jeff.beams.sh`** — verified against a pinned CA, not a self-asserted one.
 3. The certificate was issued to Machine ID bot `beam-<uuid>`, i.e. **that specific beam**, with bot instance `dbe1cf6c-…` and delegation session `bd204fe3-…`.
-4. The beam's Teleport roles at issuance (`editor, access, auditor, beam-user`) and the owner it impersonates (`jeff@goteleport.com`).
+4. The beam's Teleport roles at issuance (`editor, access, auditor, beam-user`) and the owner it impersonates (`owner@example.com`).
 5. The signature was produced **at some point during that certificate's 61-minute window** — *subject to the backdating caveat below*.
 6. Verifiable **offline, forever**, with only the exported CA (`webapi/auth/export?type=user`, ~200 bytes). The beam, its certs, and the whole cluster can be gone.
 
 ### What it does **not** prove
 
-**(a) Impersonation: Key ID is the owner, not the beam — and the reported "signer" is worse than misleading, it is verifier-controlled cosmetics.** The cert's Key ID is `jeff@goteleport.com` and the principals are `root`/`beams`. Any tool that reports "who signed this" from the Key ID or principals — which is every stock tool — will say **the human**. The beam identity is *only* in the extensions.
+**(a) Impersonation: Key ID is the owner, not the beam — and the reported "signer" is worse than misleading, it is verifier-controlled cosmetics.** The cert's Key ID is `owner@example.com` and the principals are `root`/`beams`. Any tool that reports "who signed this" from the Key ID or principals — which is every stock tool — will say **the human**. The beam identity is *only* in the extensions.
 
 The first draft called `%GS` merely misleading. It is weaker than that. Git does not know who signed: it runs `ssh-keygen -Y find-principals`, takes the **first line**, and feeds it back as `-I`; `ssh-keygen` then echoes that same string into `Good "git" signature for <X>`. So `%GS` is the first of the certificate's SSH login principals that *the verifier's own* `allowed_signers` happens to accept. Same commit, same signature, same key, only the trust file edited:
 
@@ -690,7 +690,7 @@ The first draft called `%GS` merely misleading. It is weaker than that. Git does
 | `beams,root` | **`beams`** |
 | `nonexistent-principal` | *(empty, `%G?`=U, rc=1)* |
 
-And it can never be the thing you want — `-I beam-1786bcd6-…` or `-I jeff@goteleport.com` both give `name is not a listed principal`, because `allowed_signers` matching is defined over certificate *principals* only, and the bot name is an extension. `%GS` therefore has **no evidential value**, not even as a weak signal, and a UI must not surface it. (`bin/git-beamsig-keygen` exploits the same mechanism deliberately to put the beam name there — which is honest only because it also performs the beam checks before printing it.)
+And it can never be the thing you want — `-I beam-1786bcd6-…` or `-I owner@example.com` both give `name is not a listed principal`, because `allowed_signers` matching is defined over certificate *principals* only, and the bot name is an extension. `%GS` therefore has **no evidential value**, not even as a weak signal, and a UI must not surface it. (`bin/git-beamsig-keygen` exploits the same mechanism deliberately to put the beam name there — which is honest only because it also performs the beam checks before printing it.)
 
 Mitigation: the verifier must read `bot-name` and must *display* the owner as "impersonated, not the signer". Consequence: a beam signature is **not** evidence the human reviewed anything.
 
@@ -752,7 +752,9 @@ Consequence: `--ca` is a seed, not a whitelist. Pinning the wrong CA no longer b
 
 **(f) Renewal / rotation behaviour.** Renewal every 20 min, 61-min lifetime, file rewritten in place (same inode), **key constant**, `bot-instance-id` and `delegation-session-id` stable. Implications: signing tools must re-read the identity file per operation or they break ~20 minutes in (Exp 4) — and this failure is *silent in the sense that it looks like an agent error, not a cert problem*. Durability is fine: expired certs still verify when the verifier supplies the right time. And because the key is stable, the **key fingerprint is itself a beam-lifetime identifier** — a useful cross-check, and also the thing that enables (c).
 
-**(g) Smaller points.** `disallow-reissue` is present, so a leaked cert cannot mint more certs — good. There is no revocation story: if a beam is compromised, already-made signatures remain valid forever and nothing in the envelope can be revoked (Teleport CRLs cover TLS, not SSHSIG). `teleport-traits` leaks `mcp_tools`, `logins`, and the owner's login IP into every signature — a mild privacy consideration for public repos. I did not verify whether `Sign` calls are audited server-side; the agent is local to the beam and I saw no evidence they are, so assume **signing is unaudited**.
+**(g) Every beam signature permanently carries the owner's email address.** The certificate's Key ID *is* the owner's address, so it is embedded in every signature, forever, and travels wherever the artifact goes. There is no way to sign as a beam without disclosing it: it is not an optional field, it is the identity the beam impersonates. Noticed while scrubbing a real address out of this repository's own prose, and finding it still inside the committed test fixtures and in git history, where it cannot be removed without invalidating the signatures. Consequences: a public repository of beam-signed commits publishes the launching human's address for every commit; and a public demo page that runs a real verifier will display it unless it masks it deliberately (`docs/assets/site.js` now does, labelled as masked, since the point being taught is that verification *does* reveal the owner). Anyone deploying this to a public repo should decide whether that is acceptable before, not after.
+
+**(h) Smaller points.** `disallow-reissue` is present, so a leaked cert cannot mint more certs — good. There is no revocation story: if a beam is compromised, already-made signatures remain valid forever and nothing in the envelope can be revoked (Teleport CRLs cover TLS, not SSHSIG). `teleport-traits` leaks `mcp_tools`, `logins`, and the owner's login IP into every signature — a mild privacy consideration for public repos. I did not verify whether `Sign` calls are audited server-side; the agent is local to the beam and I saw no evidence they are, so assume **signing is unaudited**.
 
 ---
 
@@ -869,7 +871,7 @@ $ # rewritten payload      -> signature does not match the payload (rc=2)
 *Why:* today the beam signs artifacts with the same key it uses for TLS client auth and SSH login. *Why insufficient:* (a) `openssl cms -verify` rejects it by default — `unsuitable certificate purpose` — because EKU is `serverAuth, clientAuth`, forcing every verifier to pass `-purpose any`, which disables purpose checking wholesale; (b) a signing key with an unauthenticated, PIN-less, touch-less oracle is a cross-protocol risk. Requested: a separate short-lived signing cert (distinct key, `emailProtection`/`codeSigning` EKU, its own PIV slot), or at minimum add a signing EKU.
 
 **3. Make the beam visible in its own `cert_create` audit event.**
-*Why:* this is the one change that would let a verifier anchor a signature to server-attested time and kill the backdating break. *Why insufficient:* `cert_create` has 43 columns and **none** of `bot_name`, `bot_instance_id`, certificate `serial`, or a public-key fingerprint; worse, the event for the beam's actual cert shows `identity_user = jeff@goteleport.com` with `identity_impersonator` **empty**, so the beam is invisible. Requested: add `identity_bot_name`, `identity_bot_instance_id`, `identity_delegation_session_id`, `cert_serial_number`, and `public_key_fingerprint` to `cert_create`; add `bot_instance_id` to `bot_join`. Then a verifier can ask "was *this* key certified for *this* beam at *this* time" instead of guessing from an expiry timestamp shared by unrelated certs.
+*Why:* this is the one change that would let a verifier anchor a signature to server-attested time and kill the backdating break. *Why insufficient:* `cert_create` has 43 columns and **none** of `bot_name`, `bot_instance_id`, certificate `serial`, or a public-key fingerprint; worse, the event for the beam's actual cert shows `identity_user = owner@example.com` with `identity_impersonator` **empty**, so the beam is invisible. Requested: add `identity_bot_name`, `identity_bot_instance_id`, `identity_delegation_session_id`, `cert_serial_number`, and `public_key_fingerprint` to `cert_create`; add `bot_instance_id` to `bot_join`. Then a verifier can ask "was *this* key certified for *this* beam at *this* time" instead of guessing from an expiry timestamp shared by unrelated certs.
 
 **4. Non-zero, unique certificate serial numbers for user certs.**
 *Why:* the SSH cert `serial` is `0`. *Why insufficient:* with serial 0 there is no compact handle to reference a specific certificate in an audit event, a revocation list, or a transparency log; you are left comparing validity windows, which collide (several certs shared the same second in my `cert_create` output).
@@ -910,7 +912,7 @@ $ # rewritten payload      -> signature does not match the payload (rc=2)
 
 6. **`ssh-keygen -Y sign -f <privatekey>` silently discards the certificate.** With `u` and `u-cert.pub` side by side, `ssh-keygen -Y sign -f u -n test m.txt` produces `is certificate : False` — all identity gone, no warning. You must pass `-f u-cert.pub` (which then finds `u` on its own). This made two of my own negative tests pass for the wrong reason until I checked the fixtures. (OpenSSH 9.2p1.)
 
-7. **`ssh-keygen -Y verify` principals cannot be the beam.** `-I beam-1786bcd6-…` or `-I jeff@goteleport.com` → `allowed_signers:1: certificate not authorized: Certificate invalid: name is not a listed principal`. Only `root` / `beams` / `-teleport-internal-join` work — generic across the whole cluster.
+7. **`ssh-keygen -Y verify` principals cannot be the beam.** `-I beam-1786bcd6-…` or `-I owner@example.com` → `allowed_signers:1: certificate not authorized: Certificate invalid: name is not a listed principal`. Only `root` / `beams` / `-teleport-internal-join` work — generic across the whole cluster.
 
 8. **`ssh-keygen -L` cannot render Teleport extensions.** `bot-name@goteleport.com UNKNOWN OPTION: 000000296265616d2d31373836626364362d…(len 45)`. Every extension that matters is hex. (OpenSSH 9.2p1.)
 

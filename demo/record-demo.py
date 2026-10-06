@@ -220,7 +220,7 @@ def build_commit(ascii_only=False):
         f"  {GREY}bot instance {R} c39a4a51-f694-47ef-abc2-bb96340810d7",
         f"  {GREY}delegation   {R} 53e4631e-b513-4fcb-8a2b-52f2d801a28c",
         f"  {GREY}roles        {R} editor, access, auditor, beam-user",
-        f"  {GREY}owner        {R} jeff@goteleport.com  "
+        f"  {GREY}owner        {R} owner@example.com  "
         f"{YELLOW}(impersonated, NOT the signer){R}",
         f"  {GREY}cert window  {R} 2026-10-05T17:16:27Z .. 2026-10-05T18:17:27Z",
         f"  {GREY}commit time  {R} 2026-10-05T17:19:52Z  {GREEN}in window{R}",
@@ -231,7 +231,7 @@ def build_commit(ascii_only=False):
         c.line(ln, pause=0.16)
     c.wait(0.3)
     c.line(f"Author: beam-8bba9461-0638-4a00-9752-c9064f9d832f "
-           f"{GREY}<jeff@goteleport.com>{R}")
+           f"{GREY}<owner@example.com>{R}")
     c.line(f"Date:   Mon Oct 5 17:19:52 2026 +0000")
     c.line()
     c.line("    Tune the retry backoff")

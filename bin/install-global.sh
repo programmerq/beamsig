@@ -89,8 +89,17 @@ done
 
 # allowed_signers is what stock ssh-keygen consults, and it has no notion of
 # which cluster a CA belongs to; list every trusted cluster's CA.
-"$LAB/bin/make-allowed-signers.sh" 'beams' "${CLUSTERS[@]}" \
-  > "$CFG/allowed_signers"
+#
+# Build it from the store rather than from the clusters we just pinned, so that
+# anything already discovered survives. Writing only the pinned set clobbered
+# previously discovered CAs, which left cross-tenant commits stuck at %G?=U.
+BEAMSIG_HOME="$LAB" "$LAB/venv/bin/python" -c '
+import sys, os
+sys.path.insert(0, os.environ["BEAMSIG_HOME"])
+from beamsig import allowedsigners
+n = allowedsigners.sync()
+print(f"   {allowedsigners.default_path()}  ({n} CAs, pins + discovered)")
+' || "$LAB/bin/make-allowed-signers.sh" 'beams' "${CLUSTERS[@]}" > "$CFG/allowed_signers"
 CA_FP=$("$LAB/venv/bin/python" - "$CFG/pinned-user-ca.txt" <<'PY'
 import sys, base64, hashlib
 for tok in open(sys.argv[1]).read().split():
@@ -101,7 +110,6 @@ for tok in open(sys.argv[1]).read().split():
 PY
 )
 echo "   $CFG/pinned-user-ca.txt  ($CA_FP)"
-echo "   $CFG/allowed_signers      (${#CLUSTERS[@]} cluster(s))"
 
 # A current copy of the certificate. The shim ignores user.signingkey and
 # refreshes this file itself on every signature, so it never goes stale; it is

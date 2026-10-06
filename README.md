@@ -282,7 +282,7 @@ Good "git" signature for beam-1786bcd6-04b9-4b9e-ad87-0c13071df7e9 with ECDSA-CE
   beam alias    clever-nebula  (self-reported, not in the certificate)
   bot instance  dbe1cf6c-8f89-4ab3-bfee-9e2c7e710f6c
   roles         editor, access, auditor, beam-user
-  owner         jeff@goteleport.com  (impersonated, NOT the signer)
+  owner         owner@example.com  (impersonated, NOT the signer)
   cert window   2026-10-05T16:16:27Z .. 2026-10-05T17:17:27Z
   commit time   2026-10-05T16:26:44Z  in window
   teleport CA   SHA256:c/8F7ipW3zBqBRe0Eau/ZBDU8hpFtLzZI9bH32668UU  (jeff.beams.sh)

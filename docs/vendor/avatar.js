@@ -2,7 +2,7 @@
 // Source of truth: extension/src/lib/avatar.js
 // Re-sync with:    bin/sync-site-libs.sh
 // --- BEGIN VERBATIM COPY ---
-// Robot generator: designed and written by Jeff (jeff@goteleport.com) as
+// Robot generator: designed and written by Jeff. as
 // tools/avatar/teleport_avatar.py. This file is its JS port.
 //
 // Deterministic seed -> robot avatar SVG (a Teleport-mascot-flavoured

@@ -50,7 +50,7 @@ beamsig verify-commit <sha> -C <repo> --ca <pinned-ca> --beam-id <uuid> --json
   "bot_instance_id": "dbe1cf6c-8f89-4ab3-bfee-9e2c7e710f6c",
   "delegation_session_id": "bd204fe3-1653-429c-bc81-b64d5a3d514f",
   "cluster": "jeff.beams.sh",
-  "owner": "jeff@goteleport.com",
+  "owner": "owner@example.com",
   "roles": ["editor", "access", "auditor", "beam-user"],
   "principals": ["root", "beams", "-teleport-internal-join"],
   "login_ip": "52.3.207.254",
@@ -63,7 +63,7 @@ beamsig verify-commit <sha> -C <repo> --ca <pinned-ca> --beam-id <uuid> --json
   "claimed_time_source": "git committer date",
   "payload_sha256": "638867e2…",
   "commit": "1cca822b…",
-  "committer": "beam-1786bcd6-… <jeff@goteleport.com>",
+  "committer": "beam-1786bcd6-… <owner@example.com>",
   "warnings": []
 }
 ```
@@ -135,11 +135,11 @@ tenants as far as a verifier can prove.
 These are the ways a UI will mislead people. Please get them right.
 
 **1. The "signer" is not the person. Key ID is the owner.**
-The certificate's Key ID is `jeff@goteleport.com` — a human — because the beam
+The certificate's Key ID is `owner@example.com` — a human — because the beam
 impersonates its owner. The beam is *only* in `bot-name`. Do not render the Key
 ID or the committer email as "signed by". Label it explicitly:
 
-> signed by **beam clever-nebula** · on behalf of jeff@goteleport.com *(owner,
+> signed by **beam clever-nebula** · on behalf of owner@example.com *(owner,
 > impersonated — did not review this)*
 
 Stock tooling gets this wrong: plain `git log --show-signature` reports
@@ -181,7 +181,7 @@ never to a program, an author, or human intent.
   instance dbe1cf6c…                      boot           [attested]
   cluster jeff.beams.sh                   [attested]
   roles editor, access, auditor           [attested]
-  on behalf of jeff@goteleport.com        owner, impersonated, not the signer
+  on behalf of owner@example.com        owner, impersonated, not the signer
   signed within 16:16:27Z – 17:17:27Z     window chosen by signer
   Teleport user CA SHA256:c/8F7ip…        pinned
 ```

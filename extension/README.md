@@ -307,7 +307,7 @@ step; the checks are in the same order in both, with the same messages.
 
 ## Beam avatars
 
-The robot generator is Jeff's work (jeff@goteleport.com); the JS port and the
+The robot generator is Jeff's work (owner@example.com); the JS port and the
 extension wiring build on it.
 
 Each beam gets a generated robot (grey paneled body, coloured highlights), seeded
