@@ -1,23 +1,33 @@
-// Lazy pinning of a Teleport user CA for an unseen tenant (hands-free for *.beams.sh). JS twin of
-// beamsig/discover.py; read the docstring there first, it is the argument for
-// everything below.
+// Lazy pinning of a Teleport user CA for an unseen tenant (hands-free for
+// *.beams.sh). JS twin of beamsig/discover.py; read the docstring there, which
+// carries the full argument.
 //
-// The short version. The cluster name comes from the artifact being verified
-// (`teleport-route-to-cluster` in the certificate), and fetching a trust anchor
-// named by the thing you are trying to trust is circular: an attacker who mints
-// their own CA and a cert claiming `evil.example.com` would cause us to fetch
-// evil.example.com's CA, which will of course validate their certificate. That
-// proves the signer controls a Teleport cluster at that hostname. It is not
-// "trusted", and it is not the same statement as a pin an operator chose.
+// The short version. When a certificate names a cluster we have no CA for, we
+// fetch `https://<cluster>/webapi/auth/export?type=user`. That is verified
+// HTTPS, so WebPKI authenticates the hostname -- "discovered" is not
+// "unauthenticated". And the cluster name is not a trust decision, it is part
+// of the identity being reported: an attacker who mints their own CA and a cert
+// claiming `evil.example.com` will have it fetched and validated, but the
+// resulting statement is *true* -- that signature really is from a beam of a
+// Teleport cluster at evil.example.com. It is not, and cannot become, a
+// statement about your cluster.
 //
-// So, as in Python, discovery is:
+// (An earlier version of this comment called that "circular trust" and argued
+// discovery should be off by default. The Python docstring it referred to was
+// corrected; this is the corrected reasoning. Signing establishes provenance,
+// not trust and not safety.)
+//
+// The real hazard is a reader seeing a tick and ignoring *which* cluster, which
+// is a presentation problem. So discovery is:
 //
 //   * ON for `*.beams.sh` by default so it is hands-free for Beams users, and
 //     switched off by emptying the allowlist in the options page;
-//   * restricted to that hostname allowlist (globs), never "any host";
+//   * restricted to that hostname allowlist (globs), never "any host" --
+//     which matters because discovery also writes to local state;
 //   * trust-on-first-use: the fetched CA is stored and pinned from then on, so a
 //     later change of CA is refused loudly rather than followed silently;
-//   * always reported as DISCOVERED, never as operator-pinned.
+//   * always reported as DISCOVERED, never as operator-pinned, so the panel can
+//     say which it was.
 //
 // It is a convenience for a team whose tenants are all its own. It is not a
 // substitute for pinning.
